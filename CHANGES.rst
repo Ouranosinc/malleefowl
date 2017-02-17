@@ -1,6 +1,42 @@
 Change History
 **************
 
+0.6.2 (2017-02-14)
+==================
+
+* update pywps recipe and archive-root config.
+
+0.6.1 (2017-01-31)
+==================
+
+* using pyesgf.logon.
+* using ``X509_USER_PROXY`` variable in download.
+* link downloaded files to download cache.
+
+0.6.0 (2017-01-27)
+==================
+
+* updated to pywps 4.0.0.
+
+0.5.0 (2017-01-12)
+==================
+
+* moved old swift code to examples.
+* removed esgf download with openid.
+* pep8 checks on tests.
+* using ``ignore_facet_check=True`` option in esgf.search. 
+
+0.4.4 (2017-01-04)
+==================
+
+* using __version__ constant.
+* fixed install on ubuntu 16.04: updated conda environment (lxml, icu).
+
+0.4.3 (2016-12-06)
+==================
+
+* update wget=2.2 from conda defaults.
+
 0.4.2 (2016-10-19)
 ==================
 

@@ -1,9 +1,13 @@
+from .wps_esgflogon import MyProxyLogon
+from .wps_esgsearch import ESGSearchProcess
+from .wps_download import Download
+from .wps_thredds import ThreddsDownload
+from .wps_workflow import DispelWorkflow
 
-__all__ = [
-    "wps_esgflogon",
-    "wps_esgsearch",
-    "wps_download",
-    "wps_workflow",
-    "wps_swift",
-    "wps_thredds"
+processes = [
+    MyProxyLogon(),
+    ESGSearchProcess(),
+    Download(),
+    ThreddsDownload(),
+    DispelWorkflow(),
 ]

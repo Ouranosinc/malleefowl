@@ -8,7 +8,7 @@ from dispel4py.base import BasePE
 from malleefowl.config import wps_url
 
 import logging
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("PYWPS")
 
 
 class MonitorPE(BasePE):
@@ -44,12 +44,12 @@ class GenericWPS(MonitorPE):
     STATUS_LOCATION_NAME = 'status_location'
 
     def __init__(self, url, identifier, resource='resource',
-                 inputs=[], output=None):
+                 inputs=[], output=None, headers=None):
         MonitorPE.__init__(self)
         self._add_output(self.STATUS_NAME)
         self._add_output(self.STATUS_LOCATION_NAME)
 
-        self.wps = WebProcessingService(url=url, skip_caps=True, verify=False)
+        self.wps = WebProcessingService(url=url, skip_caps=True, verify=False, headers=headers)
         self.identifier = identifier
         self.wps_resource = resource
         self.wps_inputs = inputs
@@ -118,11 +118,14 @@ class GenericWPS(MonitorPE):
                                     format(ex) for ex in execution.errors])
             raise Exception(failure_msg)
 
-    def process(self, inputs):
+    def _set_inputs(self, inputs, complextype=False):
         if self.INPUT_NAME in inputs:
             for value in inputs[self.INPUT_NAME]:
-                self.wps_inputs.append(
-                    (self.wps_resource, ComplexDataInput(value)))
+                if complextype is True:
+                    value = ComplexDataInput(value)
+                self.wps_inputs.append((self.wps_resource, value))
+
+    def process(self, inputs):
         try:
             result = self._process(inputs)
             if result is not None:
@@ -132,6 +135,7 @@ class GenericWPS(MonitorPE):
             raise
 
     def _process(self, inputs):
+        self._set_inputs(inputs, complextype=True)
         return self.execute()
 
 
@@ -215,39 +219,15 @@ class SolrSearch(MonitorPE):
 
 
 class Download(GenericWPS):
-    def __init__(self, url, credentials=None):
-        GenericWPS.__init__(self, url, 'download', output='output')
+    def __init__(self, url, credentials=None, headers=None):
+        GenericWPS.__init__(self, url, 'download', output='output', headers=headers)
         self.credentials = credentials
 
     def _process(self, inputs):
+        self._set_inputs(inputs, complextype=False)
         if self.credentials:
-            self.wps_inputs.append(('credentials', self.credentials))
-        result = self.execute()
-
-        # read json document with list of urls
-        import json
-        import urllib2
-        urls = json.load(urllib2.urlopen(result['output']))
-        if len(urls) == 0:
-            raise Exception('Could not download any files.')
-        result['output'] = urls
-        return result
-
-
-class SwiftDownload(GenericWPS):
-    def __init__(self, url, storage_url, auth_token, container, prefix=None):
-        GenericWPS.__init__(self, url, 'swift_download', output='output')
-        self.storage_url = storage_url
-        self.auth_token = auth_token
-        self.container = container
-        self.prefix = prefix
-
-    def _process(self, inputs):
-        self.wps_inputs.append(('storage_url', self.storage_url))
-        self.wps_inputs.append(('auth_token', self.auth_token))
-        self.wps_inputs.append(('container', self.container))
-        if self.prefix is not None:
-            self.wps_inputs.append(('prefix', self.prefix))
+            # TODO: credentials parameter is deprecated!
+            self.wps_inputs.append(('credentials', ComplexDataInput(self.credentials)))
         result = self.execute()
 
         # read json document with list of urls
@@ -279,7 +259,7 @@ class ThreddsDownload(GenericWPS):
         return result
 
 
-def esgf_workflow(source, worker, monitor=None):
+def esgf_workflow(source, worker, monitor=None, headers=None):
     graph = WorkflowGraph()
 
     # TODO: configure limit
@@ -296,7 +276,7 @@ def esgf_workflow(source, worker, monitor=None):
         start=source.get('start'),
         end=source.get('end'))
     esgsearch.set_monitor(monitor, 0, 10)
-    download = Download(url=wps_url(), credentials=source.get('credentials'))
+    download = Download(url=wps_url(), credentials=source.get('credentials'), headers=headers)
     download.set_monitor(monitor, 10, 50)
     doit = GenericWPS(**worker)
     doit.set_monitor(monitor, 50, 100)
@@ -306,23 +286,6 @@ def esgf_workflow(source, worker, monitor=None):
     graph.connect(download, download.OUTPUT_NAME, doit, doit.INPUT_NAME)
 
     result = simple_process.process(graph, inputs={esgsearch: [{}]})
-
-    status_location = result.get((doit.id, doit.STATUS_LOCATION_NAME))[0]
-    status = result.get((doit.id, doit.STATUS_NAME))[0]
-    return dict(worker=dict(status_location=status_location, status=status))
-
-
-def swift_workflow(source, worker, monitor=None):
-    graph = WorkflowGraph()
-
-    download = SwiftDownload(url=wps_url(), **source)
-    download.set_monitor(monitor, 0, 50)
-    doit = GenericWPS(**worker)
-    doit.set_monitor(monitor, 50, 100)
-
-    graph.connect(download, download.OUTPUT_NAME, doit, doit.INPUT_NAME)
-
-    result = simple_process.process(graph, inputs={download: [{}]})
 
     status_location = result.get((doit.id, doit.STATUS_LOCATION_NAME))[0]
     status = result.get((doit.id, doit.STATUS_NAME))[0]
@@ -370,16 +333,13 @@ def solr_workflow(source, worker, monitor=None):
     return dict(worker=dict(status_location=status_location, status=status))
 
 
-def run(workflow, monitor=None):
-    if 'swift' in workflow['source']:
-        return swift_workflow(source=workflow['source']['swift'],
-                              worker=workflow['worker'], monitor=monitor)
-    elif 'thredds' in workflow['source']:
+def run(workflow, monitor=None, headers=None):
+    if 'thredds' in workflow['source']:
         return thredds_workflow(source=workflow['source']['thredds'],
                                 worker=workflow['worker'], monitor=monitor)
     elif 'esgf' in workflow['source']:
         return esgf_workflow(source=workflow['source']['esgf'],
-                             worker=workflow['worker'], monitor=monitor)
+                             worker=workflow['worker'], monitor=monitor, headers=headers)
     elif 'solr' in workflow['source']:
         return solr_workflow(source=workflow['source']['solr'],
                              worker=workflow['worker'], monitor=monitor)

@@ -2,39 +2,38 @@
 TODO: handle parallel download process
 """
 
+import os
+import urlparse
 import threading
 from Queue import Queue, Empty
 import subprocess
 
 from malleefowl import config
+from malleefowl.utils import esgf_archive_path
 from malleefowl.exceptions import ProcessFailed
 
 import logging
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger("PYWPS")
 
 
-def download_with_archive(url, credentials=None, openid=None, password=None):
+def download_with_archive(url, credentials=None):
     """
     Downloads file. Checks before downloading if file is already in
     local esgf archive.
     """
-    from .utils import esgf_archive_path
     file_url = esgf_archive_path(url)
     if file_url is None:
-        file_url = download(url, use_file_url=True, credentials=credentials,
-                            openid=openid, password=password)
+        file_url = download(url, use_file_url=True, credentials=credentials)
     return file_url
 
 
-def download(url, use_file_url=False, credentials=None,
-             openid=None, password=None):
+def download(url, use_file_url=False, credentials=None):
     """
     Downloads url and returns local filename.
 
     :param url: url of file
     :param use_file_url: True if result should be a file url "file://", otherwise use system path.
     :param credentials: path to credentials if security is needed to download file
-    :param openid: download with you openid and password
     :returns: downloaded file with either file:// or system path
     """
     import urlparse
@@ -42,85 +41,88 @@ def download(url, use_file_url=False, credentials=None,
     if parsed_url.scheme == 'file':
         result = url
     else:
-        result = wget(url=url, use_file_url=use_file_url,
-                      credentials=credentials,
-                      openid=openid, password=password)
+        result = wget(url=url, use_file_url=use_file_url, credentials=credentials)
     return result
 
 
-def wget(url, use_file_url=False, credentials=None,
-         openid=None, password=None):
+def wget(url, use_file_url=False, credentials=None):
     """
     Downloads url and returns local filename.
+
+    TODO: refactor cache handling.
 
     :param url: url of file
     :param use_file_url: True if result should be a file url "file://", otherwise use system path.
     :param credentials: path to credentials if security is needed to download file
-    :param openid: download with your openid and password
     :returns: downloaded file with either file:// or system path
     """
-    logger.debug('downloading %s', url)
+    LOGGER.debug('downloading %s', url)
+
+    parsed_url = urlparse.urlparse(url)
+    filename = os.path.join(
+        config.cache_path(),
+        parsed_url.netloc,
+        parsed_url.path.strip('/'))
+    # check if in cache
+    if os.path.isfile(filename):
+        LOGGER.debug("using cached file.")
+        if use_file_url:
+            filename = "file://" + filename
+        return filename
+
+    local_cache_path = os.path.abspath(os.curdir)
 
     try:
         cmd = ["wget"]
         if credentials is not None:
-            logger.debug('using credentials')
+            LOGGER.debug('using credentials')
             cmd.extend(["--certificate", credentials])
             cmd.extend(["--private-key", credentials])
             cmd.extend(["--ca-certificate", credentials])
-        elif openid:
-            from .esgf.logon import openid_logon_with_wget
-            cookies = openid_logon_with_wget(openid, password, url=url)
-            logger.error(cookies)
-            # cmd.append('--ca-directory={0}'.format('certificates'))
-            # cmd.append('--cookies=on')
-            cmd.append('--keep-session-cookies')
-            cmd.append('--save-cookies')
-            cmd.append(cookies)
-            cmd.append('--load-cookies')
-            cmd.append(cookies)
         cmd.append("--no-check-certificate")
-        if not logger.isEnabledFor(logging.DEBUG):
+        if not LOGGER.isEnabledFor(logging.DEBUG):
             cmd.append("--quiet")
-        cmd.append("--tries=2")                  # max 2 retries
+        cmd.append("--tries=3")                  # max 2 retries
         cmd.append("-N")                         # turn on timestamping
         cmd.append("--continue")                 # continue partial downloads
         cmd.append("-x")                         # force creation of directories
-        cmd.extend(["-P", config.cache_path()])  # directory prefix
+        cmd.extend(["-P", local_cache_path])  # directory prefix
         cmd.append(url)                          # download url
-        logger.debug("cmd: %s", ' '.join(cmd))
+        LOGGER.debug("cmd: %s", ' '.join(cmd))
         output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
-        logger.debug("output: %s", output)
+        LOGGER.debug("output: %s", output)
     except subprocess.CalledProcessError as e:
         msg = "wget failed on {0}: {1.output}".format(url, e)
-        logger.error(msg)
+        LOGGER.error(msg)
         raise ProcessFailed(msg)
     except:
         msg = "wget failed on {0}.".format(url)
-        logger.exception(msg)
+        LOGGER.exception(msg)
         raise ProcessFailed(msg)
 
-    import urlparse
-    parsed_url = urlparse.urlparse(url)
-    from os.path import join
-    filename = join(config.cache_path(),
-                    parsed_url.netloc,
-                    parsed_url.path.strip('/'))
-    if use_file_url is True:
+    dn_filename = os.path.join(
+        local_cache_path,
+        parsed_url.netloc,
+        parsed_url.path.strip('/'))
+    if not os.path.exists(filename):
+        LOGGER.debug("linking downloaded file to cache.")
+        if not os.path.isdir(os.path.dirname(filename)):
+            LOGGER.debug("Creating cache directories.")
+            os.makedirs(os.path.dirname(filename), 0700)
+        os.link(dn_filename, filename)
+    if use_file_url:
         filename = "file://" + filename
     return filename
 
 
-def download_files(urls=[], credentials=None,
-                   openid=None, password=None, monitor=None):
+def download_files(urls=[], credentials=None, monitor=None):
     dm = DownloadManager(monitor)
-    return dm.download(urls, credentials, openid, password)
+    return dm.download(urls, credentials)
 
 
 def download_files_from_thredds(url, recursive=False, monitor=None):
     import threddsclient
-    return download_files(urls=threddsclient.download_urls(url),
-                          monitor=monitor)
+    return download_files(urls=threddsclient.download_urls(url), monitor=monitor)
 
 
 class DownloadManager(object):
@@ -131,7 +133,7 @@ class DownloadManager(object):
 
     def show_status(self, message, progress):
         if self.monitor is None:
-            logger.info("%s, progress=%d/100", message, progress)
+            LOGGER.info("%s, progress=%d/100", message, progress)
         else:
             self.monitor(message, progress)
 
@@ -148,14 +150,14 @@ class DownloadManager(object):
             except Empty:
                 queue_full = False
             except Exception:
-                logger.exception('download failed!')
+                LOGGER.exception('download failed!')
                 queue_full = False
             finally:
                 # completed with the job
                 self.job_queue.task_done()
 
-    def download_job(self, url, credentials, openid, password):
-        file_url = download_with_archive(url, credentials, openid, password)
+    def download_job(self, url, credentials):
+        file_url = download_with_archive(url, credentials)
         with self.result_lock:
             self.files.append(file_url)
             self.count = self.count + 1
@@ -163,7 +165,7 @@ class DownloadManager(object):
         self.show_status('Downloaded %d/%d' % (self.count, self.max_count),
                          progress)
 
-    def download(self, urls, credentials=None, openid=None, password=None):
+    def download(self, urls, credentials=None):
         # start ...
         from datetime import datetime
         t0 = datetime.now()
@@ -177,7 +179,7 @@ class DownloadManager(object):
         self.job_queue = Queue()
         # using max 4 thredds
         num_threads = min(4, len(urls))
-        logger.info('starting %d download threads', num_threads)
+        LOGGER.info('starting %d download threads', num_threads)
         for x in range(num_threads):
             t = threading.Thread(target=self.threader)
             # classifying as a daemon, so they will die when the main dies
@@ -186,8 +188,7 @@ class DownloadManager(object):
             t.start()
         for url in urls:
             # fill job queue
-            self.job_queue.put(dict(url=url, credentials=credentials,
-                                    openid=openid, password=password))
+            self.job_queue.put(dict(url=url, credentials=credentials))
 
         # wait until the thread terminates.
         self.job_queue.join()
