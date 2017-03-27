@@ -1,6 +1,20 @@
 Change History
 **************
 
+0.6.4 (2017-03-27)
+==================
+
+* fixed query search parameter.
+* fixed replica search parameter.
+* added backward compatibility for constraints search parameter.
+* update nginx conda package.
+
+0.6.3 (2017-03-21)
+==================
+
+* removed certificate parameter in download.
+* provide headers to worker process in workflow.
+
 0.6.2 (2017-02-14)
 ==================
 
