@@ -7,7 +7,7 @@ from pywps import Format, FORMATS
 from pywps.app.Common import Metadata
 
 from malleefowl import config
-from malleefowl.workflow import run
+from malleefowl.custom_workflow import run
 
 import logging
 LOGGER = logging.getLogger("PYWPS")
