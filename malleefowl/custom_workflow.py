@@ -1,5 +1,9 @@
+import json
+import urllib2
+
 from owslib.wps import WebProcessingService
 from owslib.wps import ComplexDataInput
+from owslib.wps import printInputOutput
 
 from dispel4py.workflow_graph import WorkflowGraph
 from dispel4py import simple_process
@@ -52,6 +56,8 @@ class GenericWPS(MonitorPE):
 
         # Validate that given inputs exist in the wps
         valid_inputs = [wps_input.identifier for wps_input in self.proc_desc.dataInputs]
+        # Allow a process not requiring any input to be linked to a previous one by using a "None" input name
+        valid_inputs.append("None")
         for submitted_input in inputs + linked_inputs:
             if submitted_input[0] not in valid_inputs:
                 raise Exception('Invalid workflow : Input "{input}" of process "{proc}" is unknown.'.format(
@@ -60,20 +66,38 @@ class GenericWPS(MonitorPE):
 
         # These are the static inputs
         # (linked inputs will be appended to wps_inputs just before execution by the _set_inputs function)
-        self.wps_inputs = inputs
+        self.wps_inputs = [(input[0], input[1]) for input in inputs]
 
         # Will be filled as PE are connected to us (by the require_output function)
         self.wps_outputs = []
 
-        self.linked_inputs = []
+        self.linked_inputs = {}
         for linked_input in linked_inputs:
             # Here we add PE input that will need to be connected
             self._add_input(linked_input[0])
+            self.linked_inputs[linked_input[0]] = linked_input[1]
 
-            self.linked_inputs.append({'input': linked_input[0],
-                                       'identifier': linked_input[1]['identifier'],
-                                       'output': linked_input[1]['output'],
-                                       'as_reference': linked_input[1]['as_reference']})
+    def require_output(self, output, as_reference):
+        # Validate that the required output exists in the wps
+        valid_outputs = [wps_output.identifier for wps_output in self.proc_desc.processOutputs]
+        if output not in valid_outputs:
+            return False
+
+        # Here we add a PE output that is required and about to be connected
+        self._add_output(output)
+
+        self.wps_outputs.append((output, as_reference))
+        return True
+
+    def process(self, inputs):
+        try:
+            self._set_inputs(inputs)
+            result = self._execute()
+            if result is not None:
+                return result
+        except Exception:
+            logger.exception("process failed!")
+            raise
 
     def progress(self, execution):
         return int(self._pstart +
@@ -110,39 +134,107 @@ class GenericWPS(MonitorPE):
                 ['ERROR: {0.text} code={0.code} locator={0.locator})'.
                     format(ex) for ex in execution.errors]), progress)
 
-    def extract_result(self, output, as_reference):
-        # Downstream process wants a reference...
-        if as_reference:
-            # and we got a reference!
-            if output.reference:
-                return output.reference
-
-        # Downstream process wants the data directly
-        else:
-            # and we have that!
-            if output.data:
-                return output.data
-
-            # being good we will try to fulfill the data request for json mimetype reference file
-            elif output.reference and output.mimeType == "application/json":
-                # read json document with list of urls
-                import json
-                import urllib2
-                try:
-                    return json.load(urllib2.urlopen(output.reference))
-                except Exception:
-                    # Don't raise exceptions coming from that.
-                    # Simply raise the default exception about not being able to fulfill the request
-                    pass
-
+    def _get_exception(self, wps_output, wps_input, as_ref):
         # No luck, we cannot fulfill the requested result type
-        raise Exception("Workflow error : '{proc}' doesn't produce {req_format}"
-                        "for the output '{output}' as expected by the downstream process.".
-                        format(proc=self.identifier,
-                               output=output.identifier,
-                               req_format='reference file' if as_reference else 'embedded data' ))
+        details = "Upstream task '{out}' output doesn't produce a compatible format for '{input}' input of '{task}'.".\
+            format(out=wps_output.identifier,
+                   input=wps_input.identifier,
+                   task=self.identifier)
+        more = 'Output :\n{out}\nInput (is reference : {as_ref}) :\n{input}'.format(out=printInputOutput(wps_output),
+                                                                     input=printInputOutput(wps_input),
+                                                                     as_ref=as_ref)
+        msg = 'Workflow datatype incompatibility error : {details}\n{more}'.format(details=details, more=more)
+        return Exception(msg)
 
-    def execute(self):
+    def _read_reference(self, reference):
+        # read the reference content
+        try:
+            return urllib2.urlopen(reference).read()
+        except Exception:
+            # Don't raise exceptions coming from that.
+            return None
+
+    def _adapt(self, wps_output, wps_input):
+        as_reference = self.linked_inputs[wps_input.identifier]['as_reference']
+
+        # Downstream process wants a reference, so consider the reference as the data from this point
+        if as_reference:
+            wps_output.data = wps_output.reference
+
+        # Downstream process wants the data directly, but we only have the reference: Extract the data!
+        elif not wps_output.data and wps_output.reference:
+            wps_output.data = self._read_reference(wps_output.reference)
+
+        # process output data are append into a list so extract the first value here
+        elif isinstance(wps_output.data, list) and len(wps_output.data) == 1:
+            wps_output.data = wps_output.data[0]
+
+        # Is it possible to have more than one output?
+        else:
+            raise self._get_exception(wps_output, wps_input, as_reference)
+
+
+        # At this point raise an exception if we don't have data in wps_output.data
+        if not wps_output.data:
+            raise self._get_exception(wps_output, wps_input, as_reference)
+
+        # Consider the validation completed if the dataType match for non-complex data or
+        # if the mimetype match for complex data
+        is_complex = wps_input.dataType == 'ComplexData'
+        supported_mimetypes = [value.mimeType for value in wps_input.supportedValues] if is_complex else []
+        if wps_output.dataType == wps_input.dataType and (not is_complex or wps_output.mimeType in supported_mimetypes):
+            # Covered cases:
+            # _ string -> string
+            # _ ref string -> ref string
+            # _ ref string -> string
+            # _ integer -> integer
+            # _ ref integer -> ref integer
+            # _ ref integer -> integer
+            # _ bbox -> bbox
+            # _ ref bbox -> ref bbox
+            # _ ref bbox -> bbox
+            # X complexdata -> complexdata
+            # _ ref complexdata -> ref complexdata
+            # _ ref complexdata -> complexdata
+            return [wps_output.data, ]
+
+        # Remain cases where we have mismatch for datatypes or complex data mimetypes...
+        # Before raising an exception we will check for a specific case that we will handle:
+        # json array that could be fed into the downstream wps wanting an array of data too.
+        # If this specific case is detected we will simply send the json content to the downstream wps without further
+        # validation since the json content type cannot be verified.
+        take_array = wps_input.maxOccurs > 1
+        if take_array and wps_output.mimeType == 'application/json':
+            # If the json data was still referenced read it now
+            if as_reference:
+                wps_output.data = self._read_reference(wps_output.reference)
+
+            json_data = json.loads(wps_output.data)
+            if isinstance(json_data, list):
+                array = []
+                for value in json_data:
+                    array.append(ComplexDataInput(value) if is_complex else value)
+
+                return array
+
+        raise self._get_exception(wps_output, wps_input, as_reference)
+
+    def _set_inputs(self, inputs):
+        wps_inputs = {wps_input.identifier: wps_input for wps_input in self.proc_desc.dataInputs}
+
+        for key in inputs.keys():
+            if key in wps_inputs:
+                # This is the upstream wps output object
+                wps_output = inputs[key]
+
+                # This is the current wps input object
+                wps_input = wps_inputs[key]
+
+                # Now we try to do most of the conversion job between these two datatypes with the knowledge we have
+                # and append the new wps input into the list
+                self.wps_inputs += [(key, value) for value in self._adapt(wps_output, wps_input)]
+
+    def _execute(self):
         logger.debug("execute with inputs=%s to get outputs=%s", self.wps_inputs, self.wps_outputs)
         execution = self.wps.execute(
             identifier=self.identifier,
@@ -159,49 +251,15 @@ class GenericWPS(MonitorPE):
             for wps_output in self.wps_outputs:
                 for output in execution.processOutputs:
                     if wps_output[0] == output.identifier:
-                        result[wps_output[0]] = self.extract_result(output, wps_output[1])
+                        # Send directly the wps output object to the downstream PE
+                        # Note: output.data is always an array since a wps output is append to processOutputs[x].data
+                        result[wps_output[0]] = output
                         break
             return result
         else:
             failure_msg = '\n'.join(['{0.text}'.
                                     format(ex) for ex in execution.errors])
             raise Exception(failure_msg)
-
-    def require_output(self, output, as_reference):
-        # Validate that the required output exists in the wps
-        valid_outputs = [wps_output.identifier for wps_output in self.proc_desc.processOutputs]
-        if output not in valid_outputs:
-            return False
-
-        # Here we add a PE output that is required and about to be connected
-        self._add_output(output)
-
-        self.wps_outputs.append((output, as_reference))
-        return True
-
-    def _set_inputs(self, inputs):
-        wps_inputs_datatype = {wps_input.identifier: wps_input.dataType for wps_input in self.proc_desc.dataInputs}
-
-        for input_name in inputs.keys():
-            if input_name in wps_inputs_datatype:
-                is_complex = wps_inputs_datatype[input_name] == 'ComplexData'
-                for value in inputs[input_name]:
-                    if is_complex:
-                        value = ComplexDataInput(value)
-                    self.wps_inputs.append((input_name, value))
-
-    def process(self, inputs):
-        try:
-            result = self._process(inputs)
-            if result is not None:
-                return result
-        except Exception:
-            logger.exception("process failed!")
-            raise
-
-    def _process(self, inputs):
-        self._set_inputs(inputs)
-        return self.execute()
 
 
 def run(workflow, monitor=None, headers=None):
@@ -223,7 +281,7 @@ def run(workflow, monitor=None, headers=None):
     # Connect each task PE in the dispel graph using the linked inputs information (raise an exception is some connection cannot be done)
     for wps_task in wps_tasks:
         # Try to find the referenced PE for each of the linked inputs
-        for linked_input in wps_task.linked_inputs:
+        for input_name, linked_input in wps_task.linked_inputs.iteritems():
             found_linked_input = False
 
             # Loop in the task array searching for the linked process identifier
@@ -236,7 +294,7 @@ def run(workflow, monitor=None, headers=None):
                                                       as_reference=linked_input['as_reference']):
                         # The required output has been found we can now safely connect both PE in the graph
                         graph.connect(source_wps_task, linked_input['output'],
-                                      wps_task, linked_input['input'])
+                                      wps_task, input_name)
                         found_linked_input = True
                     break
             # Unfortunately the linked input has not been resolved, we must raise an exception for that
@@ -255,7 +313,11 @@ def run(workflow, monitor=None, headers=None):
             source_PE[wps_task] = [{}]
 
     # Run the graph
-    result = simple_process.process(graph, inputs = source_PE)
+    try:
+        result = simple_process.process(graph, inputs = source_PE)
+    except Exception as e:
+        raise Exception(
+            'Cannot run the workflow graph : {0}'.format(e.message))
 
     summary = {}
     for wps_task in wps_tasks:
