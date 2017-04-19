@@ -33,7 +33,7 @@ class GenericWPS(MonitorPE):
     STATUS_NAME = 'status'
     STATUS_LOCATION_NAME = 'status_location'
 
-    def __init__(self, url, identifier, inputs=[], linked_inputs=[], headers=None, **kwargs):
+    def __init__(self, name, url, identifier, inputs=[], linked_inputs=[], headers=None, **kwargs):
         MonitorPE.__init__(self)
 
         def log(message, progress):
@@ -50,6 +50,7 @@ class GenericWPS(MonitorPE):
         self._add_output(self.STATUS_NAME)
         self._add_output(self.STATUS_LOCATION_NAME)
 
+        self.name = name
         self.identifier = identifier
         self.wps = WebProcessingService(url=url, skip_caps=True, verify=False, headers=headers)
         self.proc_desc = self.wps.describeprocess(identifier)
@@ -139,10 +140,11 @@ class GenericWPS(MonitorPE):
         details = "Upstream task '{out}' output doesn't produce a compatible format for '{input}' input of '{task}'.".\
             format(out=wps_output.identifier,
                    input=wps_input.identifier,
-                   task=self.identifier)
-        more = 'Output :\n{out}\nInput (is reference : {as_ref}) :\n{input}'.format(out=printInputOutput(wps_output),
-                                                                     input=printInputOutput(wps_input),
-                                                                     as_ref=as_ref)
+                   task=self.name)
+        more = 'Output :\n{out}\nInput (is reference : {as_ref}) :\n{input}'.format(
+            out=printInputOutput(wps_output),
+            input=printInputOutput(wps_input),
+            as_ref=as_ref)
         msg = 'Workflow datatype incompatibility error : {details}\n{more}'.format(details=details, more=more)
         return Exception(msg)
 
@@ -284,9 +286,9 @@ def run(workflow, monitor=None, headers=None):
         for input_name, linked_input in wps_task.linked_inputs.iteritems():
             found_linked_input = False
 
-            # Loop in the task array searching for the linked process identifier
+            # Loop in the task array searching for the linked task
             for source_wps_task in wps_tasks:
-                if source_wps_task.identifier == linked_input['identifier']:
+                if source_wps_task.name == linked_input['task']:
                     # The linked process has been found
                     # The require_output function will validate the existence of the required output and prepare it
                     # which involve creating the graph PE output and the requested WPS output as reference or not
@@ -301,9 +303,9 @@ def run(workflow, monitor=None, headers=None):
             if not found_linked_input:
                 raise Exception(
                     'Cannot build workflow graph : Task "{task}" has an unknown linked input : '
-                    'identifier: {identifier}, output: {output}'.format(
-                        task=wps_task.identifier,
-                        identifier=linked_input['identifier'],
+                    'task: {linked_task}, output: {output}'.format(
+                        task=wps_task.name,
+                        linked_task=linked_input['task'],
                         output=linked_input['output']))
 
     # Search for the 'source' PEs (which have no inputs)
@@ -321,7 +323,7 @@ def run(workflow, monitor=None, headers=None):
 
     summary = {}
     for wps_task in wps_tasks:
-        summary[wps_task.identifier] =\
+        summary[wps_task.name] =\
             {'status_location': result.get((wps_task.id, wps_task.STATUS_LOCATION_NAME))[0],
              'status': result.get((wps_task.id, wps_task.STATUS_NAME))[0]
              }
