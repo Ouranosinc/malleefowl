@@ -11,8 +11,16 @@ from dispel4py.core import GenericPE
 
 from malleefowl.workflow import run as run_basic_workflow
 
+# For checkStatus function
+from owslib.wps import WPSExecuteReader
+from owslib.etree import etree
+
 import logging
 logger = logging.getLogger("PYWPS")
+
+
+# If the xml document is unavailable after 5 attemps consider that the process has failed
+XML_DOC_READING_MAX_ATTEMPT = 5
 
 
 class MonitorPE(GenericPE):
@@ -105,15 +113,37 @@ class GenericWPS(MonitorPE):
                    ((self._pend - self._pstart) /
                     100.0 * execution.percentCompleted))
 
+    def check_status(self, execution):
+        reader = WPSExecuteReader(verbose=execution.verbose)
+        # override status location
+        logger.info('\nChecking execution status... (location=%s)' % execution.statusLocation)
+        try:
+            response = reader.readFromUrl(
+                execution.statusLocation,
+                username=execution.username,
+                password=execution.password,
+                verify=execution.verify,
+                headers=execution.headers)
+            response = etree.tostring(response)
+        except:
+            logger.error("Could not read status document.")
+            raise
+        else:
+            execution.checkStatus(response=response, sleepSecs=3)
+
     def monitor_execution(self, execution):
         progress = self.progress(execution)
         self.monitor("status_location={0.statusLocation}".format(execution), progress)
 
+        xml_doc_read_failure = 0
         while execution.isNotComplete():
             try:
-                execution.checkStatus(sleepSecs=3)
+                self.check_status(execution)
             except:
                 logger.exception("Could not read status xml document.")
+                xml_doc_read_failure += 1
+                if xml_doc_read_failure > XML_DOC_READING_MAX_ATTEMPT:
+                    execution.status = "Exception"
             else:
                 progress = self.progress(execution)
                 self.monitor(execution.statusMessage, progress)
