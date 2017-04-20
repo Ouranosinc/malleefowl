@@ -1,5 +1,7 @@
+import sys
 import json
 import urllib2
+from cStringIO import StringIO
 
 from owslib.wps import WebProcessingService
 from owslib.wps import ComplexDataInput
@@ -165,15 +167,25 @@ class GenericWPS(MonitorPE):
                 ['ERROR: {0.text} code={0.code} locator={0.locator})'.
                     format(ex) for ex in execution.errors]), progress)
 
+    def _printInputOutput(self, value):
+        sys.stdout = mystdout = StringIO()
+
+        # print to stdout which we capture
+        printInputOutput(value)
+
+        sys.stdout = sys.__stdout__
+        return mystdout.getvalue()
+
     def _get_exception(self, wps_output, wps_input, as_ref):
         # No luck, we cannot fulfill the requested result type
         details = "Upstream task '{out}' output doesn't produce a compatible format for '{input}' input of '{task}'.".\
             format(out=wps_output.identifier,
                    input=wps_input.identifier,
                    task=self.name)
+
         more = 'Output :\n{out}\nInput (is reference : {as_ref}) :\n{input}'.format(
-            out=printInputOutput(wps_output),
-            input=printInputOutput(wps_input),
+            out=self._printInputOutput(wps_output),
+            input=self._printInputOutput(wps_input),
             as_ref=as_ref)
         msg = 'Workflow datatype incompatibility error : {details}\n{more}'.format(details=details, more=more)
         return Exception(msg)
