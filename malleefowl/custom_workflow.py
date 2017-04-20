@@ -200,18 +200,23 @@ class GenericWPS(MonitorPE):
 
     def _adapt(self, wps_output, wps_input):
         as_reference = self.linked_inputs[wps_input.identifier]['as_reference']
+        output_dataType = [wps_output.dataType, ]
+
 
         # Downstream process wants a reference, so consider the reference as the data from this point
         if as_reference:
-            wps_output.data = wps_output.reference
+            output_data = wps_output.reference
+
+            # If the downstream process want a string it is ok too (no mimetype check in that case)
+            output_dataType.append('string')
 
         # Downstream process wants the data directly, but we only have the reference: Extract the data!
         elif not wps_output.data and wps_output.reference:
-            wps_output.data = self._read_reference(wps_output.reference)
+            output_data = self._read_reference(wps_output.reference)
 
         # process output data are append into a list so extract the first value here
         elif isinstance(wps_output.data, list) and len(wps_output.data) == 1:
-            wps_output.data = wps_output.data[0]
+            output_data = wps_output.data[0]
 
         # Is it possible to have more than one output?
         else:
@@ -219,14 +224,14 @@ class GenericWPS(MonitorPE):
 
 
         # At this point raise an exception if we don't have data in wps_output.data
-        if not wps_output.data:
+        if not output_data:
             raise self._get_exception(wps_output, wps_input, as_reference)
 
         # Consider the validation completed if the dataType match for non-complex data or
         # if the mimetype match for complex data
         is_complex = wps_input.dataType == 'ComplexData'
         supported_mimetypes = [value.mimeType for value in wps_input.supportedValues] if is_complex else []
-        if wps_output.dataType == wps_input.dataType and (not is_complex or wps_output.mimeType in supported_mimetypes):
+        if wps_input.dataType in output_dataType and (not is_complex or wps_output.mimeType in supported_mimetypes):
             # Covered cases:
             # _ string -> string
             # _ ref string -> ref string
@@ -240,7 +245,8 @@ class GenericWPS(MonitorPE):
             # X complexdata -> complexdata
             # _ ref complexdata -> ref complexdata
             # _ ref complexdata -> complexdata
-            return [wps_output.data, ]
+            # X ref complexdata -> string
+            return [output_data, ]
 
         # Remain cases where we have mismatch for datatypes or complex data mimetypes...
         # Before raising an exception we will check for a specific case that we will handle:
@@ -248,12 +254,12 @@ class GenericWPS(MonitorPE):
         # If this specific case is detected we will simply send the json content to the downstream wps without further
         # validation since the json content type cannot be verified.
         take_array = wps_input.maxOccurs > 1
-        if take_array and wps_output.mimeType == 'application/json':
+        if take_array and 'ComplexData' in output_dataType and wps_output.mimeType == 'application/json':
             # If the json data was still referenced read it now
             if as_reference:
-                wps_output.data = self._read_reference(wps_output.reference)
+                output_data = self._read_reference(wps_output.reference)
 
-            json_data = json.loads(wps_output.data)
+            json_data = json.loads(output_data)
             if isinstance(json_data, list):
                 array = []
                 for value in json_data:
@@ -295,6 +301,13 @@ class GenericWPS(MonitorPE):
             for wps_output in self.wps_outputs:
                 for output in execution.processOutputs:
                     if wps_output[0] == output.identifier:
+                        # outputs in execution process outputs do not carry the dataType so patch it here
+                        # _adapt fct needs a proper dataType for the output data
+                        if not output.dataType:
+                            for desc_wps_output in self.proc_desc.processOutputs:
+                                if desc_wps_output.identifier == output.identifier:
+                                    output.dataType = desc_wps_output.dataType
+
                         # Send directly the wps output object to the downstream PE
                         # Note: output.data is always an array since a wps output is append to processOutputs[x].data
                         result[wps_output[0]] = output
