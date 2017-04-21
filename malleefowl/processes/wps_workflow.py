@@ -1,4 +1,5 @@
 import yaml
+from datetime import datetime
 
 from pywps import Process
 from pywps import ComplexInput
@@ -51,30 +52,43 @@ class DispelWorkflow(Process):
         )
 
     def _handler(self, request, response):
-        def monitor(message, progress):
-            response.update_status(message, progress)
+        with open('logfile.txt', 'w') as fp:
 
-        response.update_status("starting workflow ...", 0)
+            def monitor(message, progress):
+                response.update_status(message, progress)
+                fp.write('{timestamp}{progress:>4}%: {msg}\n'.format(
+                    timestamp= datetime.now().strftime('%H:%M:%S'),
+                    progress= progress,
+                    msg= message))
 
-        workflow = yaml.load(request.inputs['workflow'][0].stream)
-        workflow_name = workflow.get('name', 'unknown')
+            monitor("starting workflow ...", 0)
 
-        response.update_status("workflow {0} prepared.".format(workflow_name), 0)
+            workflow = yaml.load(request.inputs['workflow'][0].stream)
+            workflow_name = workflow.get('name', 'unknown')
 
-        # prepare headers
-        headers = {}
-        if 'X-X509-User-Proxy' in request.http_request.headers:
-            headers['X-X509-User-Proxy'] = request.http_request.headers['X-X509-User-Proxy']
-        if 'Access-Token' in request.http_request.headers:
-            headers['Access-Token'] = request.http_request.headers['Access-Token']
+            monitor("workflow {0} prepared.".format(workflow_name), 0)
+            yaml.dump(workflow, stream=fp)
+            fp.write('\n')
 
-        result = run(workflow, monitor=monitor, headers=headers)
+            # prepare headers
+            headers = {}
+            if 'X-X509-User-Proxy' in request.http_request.headers:
+                headers['X-X509-User-Proxy'] = request.http_request.headers['X-X509-User-Proxy']
+            if 'Access-Token' in request.http_request.headers:
+                headers['Access-Token'] = request.http_request.headers['Access-Token']
+
+            result = run(workflow, monitor=monitor, headers=headers)
+
+            monitor("workflow {0} done.".format(workflow_name), 100)
+
+            fp.write('\nWorkflow result:\n')
+            yaml.dump(result, stream=fp)
+
+            response.outputs['logfile'].file = fp.name
 
         with open('output.txt', 'w') as fp:
             yaml.dump(result, stream=fp)
             response.outputs['output'].file = fp.name
-        with open('logfile.txt', 'w') as fp:
-            fp.write("workflow log file")
-            response.outputs['logfile'].file = fp.name
-        response.update_status("workflow {0} done.".format(workflow_name), 100)
+
+
         return response
