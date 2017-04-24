@@ -25,6 +25,19 @@ logger = logging.getLogger("PYWPS")
 XML_DOC_READING_MAX_ATTEMPT = 5
 
 
+class ProxyPE(GenericPE):
+    def __init__(self, input_name, output_name):
+        GenericPE.__init__(self)
+
+        self.input_name = input_name
+        self.output_name = output_name
+        self._add_input(input_name)
+        self._add_output(output_name)
+
+    def process(self, inputs):
+        return {self.output_name: inputs[self.input_name]}
+
+
 class MonitorPE(GenericPE):
     def __init__(self):
         GenericPE.__init__(self)
@@ -42,6 +55,7 @@ class MonitorPE(GenericPE):
 class GenericWPS(MonitorPE):
     STATUS_NAME = 'status'
     STATUS_LOCATION_NAME = 'status_location'
+    DUMMY_INPUT_NAME = 'None'
 
     def __init__(self, name, url, identifier, inputs=[], linked_inputs=[], headers=None, **kwargs):
         MonitorPE.__init__(self)
@@ -67,8 +81,8 @@ class GenericWPS(MonitorPE):
 
         # Validate that given inputs exist in the wps
         valid_inputs = [wps_input.identifier for wps_input in self.proc_desc.dataInputs]
-        # Allow a process not requiring any input to be linked to a previous one by using a "None" input name
-        valid_inputs.append("None")
+        # Allow a process not requiring any input to be linked to a previous one by using a dummy ("None") input name
+        valid_inputs.append(self.DUMMY_INPUT_NAME)
         for submitted_input in inputs + linked_inputs:
             if submitted_input[0] not in valid_inputs:
                 raise Exception('Invalid workflow : Input "{input}" of process "{proc}" is unknown.'.format(
@@ -103,12 +117,16 @@ class GenericWPS(MonitorPE):
     def process(self, inputs):
         try:
             self._set_inputs(inputs)
-            result = self._execute()
-            if result is not None:
-                return result
+            # Check that all required inputs have been set
+            # if not wait (by returning None) for a subsequent process call that will set other inputs
+            if self._is_ready():
+                result = self._execute()
+                if result is not None:
+                    return result
         except Exception:
             logger.exception("process failed!")
             raise
+        return None
 
     def progress(self, execution):
         return int(self._pstart +
@@ -233,19 +251,21 @@ class GenericWPS(MonitorPE):
         supported_mimetypes = [value.mimeType for value in wps_input.supportedValues] if is_complex else []
         if wps_input.dataType in output_dataType and (not is_complex or wps_output.mimeType in supported_mimetypes):
             # Covered cases:
-            # _ string -> string
-            # _ ref string -> ref string
-            # _ ref string -> string
-            # _ integer -> integer
-            # _ ref integer -> ref integer
-            # _ ref integer -> integer
+            # X string -> string
+            # N ref string -> ref string
+            # N ref string -> string
+            # X integer -> integer
+            # N ref integer -> ref integer
+            # N ref integer -> integer
             # _ bbox -> bbox
-            # _ ref bbox -> ref bbox
-            # _ ref bbox -> bbox
+            # N ref bbox -> ref bbox
+            # N ref bbox -> bbox
             # X complexdata -> complexdata
             # _ ref complexdata -> ref complexdata
             # _ ref complexdata -> complexdata
             # X ref complexdata -> string
+            # X -> Working
+            # N -> Literal and BBox type cannot produce reference output
             return [output_data, ]
 
         # Remain cases where we have mismatch for datatypes or complex data mimetypes...
@@ -268,6 +288,16 @@ class GenericWPS(MonitorPE):
                 return array
 
         raise self._get_exception(wps_output, wps_input, as_reference)
+
+    def _is_ready(self):
+        ready_wps_inputs = [wps_input[0] for wps_input in self.wps_inputs]
+        # Consider the dummy input to be always ready!
+        ready_wps_inputs.append(self.DUMMY_INPUT_NAME)
+
+        for linked_input in self.linked_inputs.keys():
+            if linked_input not in ready_wps_inputs:
+                return False
+        return True
 
     def _set_inputs(self, inputs):
         wps_inputs = {wps_input.identifier: wps_input for wps_input in self.proc_desc.dataInputs}
@@ -301,12 +331,15 @@ class GenericWPS(MonitorPE):
             for wps_output in self.wps_outputs:
                 for output in execution.processOutputs:
                     if wps_output[0] == output.identifier:
-                        # outputs in execution process outputs do not carry the dataType so patch it here
-                        # _adapt fct needs a proper dataType for the output data
+                        # outputs from execution structure do not always carry the dataType
+                        # so find it from the process description because the _adapt fct needs it
                         if not output.dataType:
                             for desc_wps_output in self.proc_desc.processOutputs:
                                 if desc_wps_output.identifier == output.identifier:
                                     output.dataType = desc_wps_output.dataType
+                        # Also the datatype is not always strip correctly so do the job here
+                        else:
+                            output.dataType = output.dataType.split(':')[-1]
 
                         # Send directly the wps output object to the downstream PE
                         # Note: output.data is always an array since a wps output is append to processOutputs[x].data
@@ -317,6 +350,22 @@ class GenericWPS(MonitorPE):
             failure_msg = '\n'.join(['{0.text}'.
                                     format(ex) for ex in execution.errors])
             raise Exception(failure_msg)
+
+
+def connect(graph, fromNode, fromConnection, toNode, toConnection):
+    # Dispel doesn't support multiple connection betwwen 2 nodes
+    # If required we add a proxy node between them for the aditionnal connection
+    try:
+        is_connected = graph.graph.has_edge(graph.objToNode[fromNode], graph.objToNode[toNode])
+    except KeyError:
+        is_connected = False
+
+    if is_connected:
+        proxyNode = ProxyPE(fromConnection, toConnection)
+        graph.connect(fromNode, fromConnection, proxyNode, fromConnection)
+        graph.connect(proxyNode, toConnection, toNode, toConnection)
+    else:
+        graph.connect(fromNode, fromConnection, toNode, toConnection)
 
 
 def run(workflow, monitor=None, headers=None):
@@ -350,8 +399,7 @@ def run(workflow, monitor=None, headers=None):
                     if source_wps_task.require_output(output=linked_input['output'],
                                                       as_reference=linked_input['as_reference']):
                         # The required output has been found we can now safely connect both PE in the graph
-                        graph.connect(source_wps_task, linked_input['output'],
-                                      wps_task, input_name)
+                        connect(graph, source_wps_task, linked_input['output'], wps_task, input_name)
                         found_linked_input = True
                     break
             # Unfortunately the linked input has not been resolved, we must raise an exception for that
