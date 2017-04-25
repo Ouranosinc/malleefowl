@@ -77,14 +77,23 @@ class DispelWorkflow(Process):
             if 'Access-Token' in request.http_request.headers:
                 headers['Access-Token'] = request.http_request.headers['Access-Token']
 
-            result = run(workflow, monitor=monitor, headers=headers)
+            try:
+                result = run(workflow, monitor=monitor, headers=headers)
+            except Exception as e:
+                fp.close()
+                full_msg = '{0}\nExecution log :\n'.format(str(e))
+                with open('logfile.txt', 'r') as log_fp:
+                    for log_line in log_fp:
+                        full_msg += log_line
+                e.args = (full_msg,)
+                raise
+            else:
+                monitor("workflow {0} done.".format(workflow_name), 100)
 
-            monitor("workflow {0} done.".format(workflow_name), 100)
+                fp.write('\nWorkflow result:\n')
+                yaml.dump(result, stream=fp)
 
-            fp.write('\nWorkflow result:\n')
-            yaml.dump(result, stream=fp)
-
-            response.outputs['logfile'].file = fp.name
+                response.outputs['logfile'].file = fp.name
 
         with open('output.txt', 'w') as fp:
             yaml.dump(result, stream=fp)

@@ -220,7 +220,6 @@ class GenericWPS(MonitorPE):
         as_reference = self.linked_inputs[wps_input.identifier]['as_reference']
         output_dataType = [wps_output.dataType, ]
 
-
         # Downstream process wants a reference, so consider the reference as the data from this point
         if as_reference:
             output_data = wps_output.reference
@@ -250,27 +249,11 @@ class GenericWPS(MonitorPE):
         is_complex = wps_input.dataType == 'ComplexData'
         supported_mimetypes = [value.mimeType for value in wps_input.supportedValues] if is_complex else []
         if wps_input.dataType in output_dataType and (not is_complex or wps_output.mimeType in supported_mimetypes):
-            # Covered cases:
-            # X string -> string
-            # N ref string -> ref string
-            # N ref string -> string
-            # X integer -> integer
-            # N ref integer -> ref integer
-            # N ref integer -> integer
-            # _ bbox -> bbox
-            # N ref bbox -> ref bbox
-            # N ref bbox -> bbox
-            # X complexdata -> complexdata
-            # _ ref complexdata -> ref complexdata
-            # _ ref complexdata -> complexdata
-            # X ref complexdata -> string
-            # X -> Working
-            # N -> Literal and BBox type cannot produce reference output
             return [output_data, ]
 
-        # Remain cases where we have mismatch for datatypes or complex data mimetypes...
-        # Before raising an exception we will check for a specific case that we will handle:
-        # json array that could be fed into the downstream wps wanting an array of data too.
+        # Remain cases are either datatypes or complex data mimetypes mismatching...
+        # Before raising an exception we will check for a specific case that we can handle:
+        # json array that could be fed into the downstream wps wanting an array of data.
         # If this specific case is detected we will simply send the json content to the downstream wps without further
         # validation since the json content type cannot be verified.
         take_array = wps_input.maxOccurs > 1
@@ -287,6 +270,7 @@ class GenericWPS(MonitorPE):
 
                 return array
 
+        # Cannot do anything else
         raise self._get_exception(wps_output, wps_input, as_reference)
 
     def _is_ready(self):
@@ -421,8 +405,8 @@ def run(workflow, monitor=None, headers=None):
     try:
         result = simple_process.process(graph, inputs = source_PE)
     except Exception as e:
-        raise Exception(
-            'Cannot run the workflow graph : {0}'.format(e.message))
+        e.args = ('Cannot run the workflow graph : {0}'.format(str(e)),)
+        raise
 
     summary = {}
     for wps_task in wps_tasks:
