@@ -504,7 +504,7 @@ def run(workflow, monitor=None, headers=None):
 
     # Back compatibility with the basic workflow detected by looking at the new tasks array required for custom workflow
     if 'tasks' not in workflow:
-        run_basic_workflow(workflow, monitor, headers)
+        return run_basic_workflow(workflow, monitor, headers)
 
     graph = WorkflowGraph()
 
