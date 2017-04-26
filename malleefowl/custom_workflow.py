@@ -1,33 +1,45 @@
 """
 Run custom workflow without prior knowledge of the underlying component except the fact that they are WPS
 The workflow must have the following structure:
-Dict of 2 elements :
-  - name : Workflow name
-  - tasks : Array of workflow task, each describe by a dict :
-    - name : Unique name given to each workflow task
-    - url : Url of the WPS provider
-    - identifier : Identifier of a WPS process
-    - inputs : Array of static input required by the WPS process, each describe by a 2 elements array :
-      - Name of the input
-      - Value of the input
-    - linked_inputs : Array of dynamic input required by the WPS process and obtained by the output of other tasks,
-                      each describe by a 2 elements array :
-      - Name of the input
-      - Provenance of the input, describe by a dict :
-        - task : Name of the task from which this input must come from
-        - output : Name of the task output that will be linked
-        - as_reference : Specify the required form of the input** [True: Expect an URL to the input,
-                                                                   False: Expect the data directly]
-    - progress_range : 2 elements array defining the overall progress range of this task :
-      - Start
-      - End
 
-** The workflow executor is able obviously to assign a reference output to an expected reference input and
-   a data output to an expected data input but will also be able to read the value of a reference output to send the
-   expected data input. However, a data output linked to an expected reference input will yield to an exception.
+Dict of 2 elements :
+
+* name : Workflow name
+* tasks : Array of workflow task, each describe by a dict :
+
+  * name : Unique name given to each workflow task
+  * url : Url of the WPS provider
+  * identifier : Identifier of a WPS process
+  * inputs : Array of static input required by the WPS process, each describe by a 2 elements array :
+
+    * Name of the input
+    * Value of the input
+
+  * linked_inputs : Array of dynamic input required by the WPS process and obtained by the output of other tasks,
+                    each describe by a 2 elements array :
+
+    * Name of the input
+    * Provenance of the input, describe by a dict :
+
+      * task : Name of the task from which this input must come from
+      * output : Name of the task output that will be linked
+      * as_reference : Specify the required form of the input(1) [True: Expect an URL to the input,
+                                                                 False: Expect the data directly]
+
+  * progress_range : 2 elements array defining the overall progress range of this task :
+
+    * Start
+    * End
+
+(1) The workflow executor is able obviously to assign a reference output to an expected reference input and
+a data output to an expected data input but will also be able to read the value of a reference output to send the
+expected data input. However, a data output linked to an expected reference input will yield to an exception.
 
 Exemple:
-{
+
+.. code-block:: json
+
+    {
         "name": "Subsetting workflow",
         "tasks": [
             {
@@ -51,6 +63,7 @@ Exemple:
             },
         ]
     }
+
 """
 
 import sys
@@ -142,8 +155,7 @@ class GenericWPS(MonitorPE):
                     self.identifier, message),
                     progress)
             else:
-                logger.info('STATUS ({0}: {2}/100) - {1}'.format(
-                    self.identifier, message, progress))
+                logger.info('STATUS (%s: %s/100) - %s', self.identifier, progress, message)
 
         self.monitor = log
 
@@ -235,8 +247,8 @@ class GenericWPS(MonitorPE):
                 verify=execution.verify,
                 headers=execution.headers)
             response = etree.tostring(response)
-        except:
-            logger.error("Could not read status document.")
+        except Exception as e:
+            logger.warning("Could not read status document : %s", str(e))
             raise
         else:
             execution.checkStatus(response=response, sleepSecs=3)
@@ -255,9 +267,10 @@ class GenericWPS(MonitorPE):
                 self.check_status(execution)
             except:
                 # Try XML_DOC_READING_MAX_ATTEMPT time before raising an exception
-                logger.exception("Could not read status xml document.")
                 xml_doc_read_failure += 1
                 if xml_doc_read_failure > XML_DOC_READING_MAX_ATTEMPT:
+                    logger.error("Failed to read status xml document after %s attempts",
+                                     XML_DOC_READING_MAX_ATTEMPT)
                     raise
                 else:
                     # Sleep 5 seconds to give a chance
@@ -280,7 +293,7 @@ class GenericWPS(MonitorPE):
                         format(output.identifier, ", ".join(output.data)),
                         progress)
 
-        # Of log the errors
+        # Or log the errors
         else:
             self.monitor('\n'.join(
                 ['ERROR: {0.text} code={0.code} locator={0.locator})'.
@@ -354,7 +367,7 @@ class GenericWPS(MonitorPE):
         elif isinstance(wps_output.data, list) and len(wps_output.data) == 1:
             output_data = wps_output.data[0]
 
-        # Is it possible to have more than one output?
+        # We do not support more than one output
         else:
             raise self._get_exception(wps_output, wps_input, as_reference)
 
@@ -393,7 +406,7 @@ class GenericWPS(MonitorPE):
 
     def _is_ready(self):
         """
-        Check if all the required wps inputs had been set
+        Check if all the required wps inputs have been set
         """
         ready_wps_inputs = [wps_input[0] for wps_input in self.wps_inputs]
         # Consider the dummy input to be always ready!
@@ -449,12 +462,12 @@ class GenericWPS(MonitorPE):
                             for desc_wps_output in self.proc_desc.processOutputs:
                                 if desc_wps_output.identifier == output.identifier:
                                     output.dataType = desc_wps_output.dataType
-                        # Also the datatype is not always strip correctly so do the job here
+                        # Also the datatype is not always stripped correctly so do the job here
                         else:
                             output.dataType = output.dataType.split(':')[-1]
 
                         # Send directly the wps output object to the downstream PE
-                        # Note: output.data is always an array since a wps output is append to processOutputs[x].data
+                        # Note: output.data is always an array since a wps output is appended to processOutputs[x].data
                         result[wps_output[0]] = output
                         break
             return result
@@ -476,7 +489,7 @@ def connect(graph, from_node, from_connection, to_node, to_connection):
     :param to_connection: Input name of the downstream node
     """
     try:
-        # Detect if an edge already exist between these 2 nodes (Will throw an exception if the nodes are still unknown)
+        # Detect if an edge already exists between these 2 nodes (Will throw an exception if the nodes are still unknown)
         is_connected = graph.graph.has_edge(graph.objToNode[from_node], graph.objToNode[to_node])
     except KeyError:
         # If the nodes are unknown we know for sure that they are not connected

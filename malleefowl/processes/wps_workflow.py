@@ -38,7 +38,7 @@ class DispelWorkflow(Process):
             self._handler,
             identifier="workflow",
             title="Workflow",
-            version="0.8",
+            version="0.7",
             abstract="Runs Workflow with dispel4py.",
             metadata=[
                 Metadata('Birdhouse', 'http://bird-house.github.io/'),
