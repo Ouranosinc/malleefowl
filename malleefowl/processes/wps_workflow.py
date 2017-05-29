@@ -2,6 +2,7 @@ import yaml
 from datetime import datetime
 
 from pywps import Process
+from pywps import LiteralInput
 from pywps import ComplexInput
 from pywps import ComplexOutput
 from pywps import Format
@@ -19,9 +20,14 @@ class DispelWorkflow(Process):
             ComplexInput('workflow', 'Workflow description',
                          abstract='Workflow description in YAML.',
                          metadata=[Metadata('Info')],
-                         min_occurs=1,
+                         min_occurs=0,
                          max_occurs=1,
                          supported_formats=[Format('text/yaml')]),
+            LiteralInput('workflow_string', 'Workflow description',
+                         data_type='string',
+                         abstract="Workflow description in YAML as string",
+                         min_occurs=0,
+                         max_occurs=1)
         ]
         outputs = [
             ComplexOutput('output', 'Workflow result',
@@ -65,7 +71,11 @@ class DispelWorkflow(Process):
             monitor("starting workflow ...", 0)
 
             # Load the workflow
-            workflow = yaml.load(request.inputs['workflow'][0].stream)
+            if 'workflow' in request.inputs:
+                workflow = yaml.load(request.inputs['workflow'][0].stream)
+            else:
+                workflow = yaml.load(request.inputs['workflow_string'][0].data)
+
             workflow_name = workflow.get('name', 'unknown')
 
             monitor("workflow {0} prepared.".format(workflow_name), 0)
