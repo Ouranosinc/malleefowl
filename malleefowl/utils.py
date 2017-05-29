@@ -215,3 +215,30 @@ def nc_copy(source, target, overwrite=True, time_dimname='time', nchunk=10, ista
     # close files.
     nc_out.close()
     nc_in.close()
+
+
+class auto_list:
+    def __init__(self, list, default_val=0):
+        self.list = list
+        self.default_val = default_val
+
+    def __setitem__(self, key, value):
+        size = len(self.list)
+        if key >= size:
+            list.extend([self.default_val for _ in range(size, key + 1)])
+            list[key] = value
+
+    def __iter__(self):
+        for val in list:
+            yield val
+
+    def __len__(self):
+        return len(list)
+
+
+class DataWrapper:
+    HEADERS_MAP_INDEX = 'map_index'
+
+    def __init__(self, payload=None, headers=None):
+        self.payload = payload
+        self.headers = headers

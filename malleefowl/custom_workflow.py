@@ -72,14 +72,16 @@ import urllib2
 from cStringIO import StringIO
 from time import sleep
 
+
 from owslib.wps import WebProcessingService
 from owslib.wps import ComplexDataInput
 from owslib.wps import printInputOutput
 
 from dispel4py.workflow_graph import WorkflowGraph
 from dispel4py import simple_process
-from dispel4py.core import GenericPE
+from dispel4py import multi_process
 
+from PEs import ProxyPE, MapPE, ReducePE, MonitorPE
 from malleefowl.workflow import run as run_basic_workflow
 
 # For check_status function
@@ -94,47 +96,6 @@ logger = logging.getLogger("PYWPS")
 XML_DOC_READING_MAX_ATTEMPT = 5
 
 
-class ProxyPE(GenericPE):
-    """
-    Pass-through PE that let connect 2 PEs by multiple connections using this proxy
-    Connecting A to B twice is not allowed but connecting A to B then A to ProxyPE and ProxyPe to B
-    is functionality equivalent and let the goal to be reached
-    """
-    def __init__(self, input_name, output_name):
-        GenericPE.__init__(self)
-
-        self.input_name = input_name
-        self.output_name = output_name
-        self._add_input(input_name)
-        self._add_output(output_name)
-
-    def process(self, inputs):
-        """
-        Simply feed the input as output
-        """
-        return {self.output_name: inputs[self.input_name]}
-
-
-class MonitorPE(GenericPE):
-    """
-    Augment GenericPE with a functionality to scale the current progress to a specific progress range
-    """
-    def __init__(self):
-        GenericPE.__init__(self)
-
-        self._monitor = None
-        self._pstart = 0
-        self._pend = 100
-
-    def set_monitor(self, monitor, start_progress=0, end_progress=100):
-        self._monitor = monitor
-        self._pstart = start_progress
-        self._pend = end_progress
-
-    def progress(self, execution):
-        return int(self._pstart + ((self._pend - self._pstart) / 100.0 * execution.percentCompleted))
-
-
 class GenericWPS(MonitorPE):
     """
     Wrap the execution of a WPS process into a dispel4py PE
@@ -143,8 +104,8 @@ class GenericWPS(MonitorPE):
     STATUS_LOCATION_NAME = 'status_location'
     DUMMY_INPUT_NAME = 'None'
 
-    def __init__(self, name, url, identifier, inputs=[], linked_inputs=[], headers=None, **kwargs):
-        MonitorPE.__init__(self)
+    def __init__(self, name, url, identifier, progress_provider, inputs=[], linked_inputs=[], headers=None, **kwargs):
+        MonitorPE.__init__(self, progress_provider)
 
         def log(message, progress):
             """
@@ -211,25 +172,26 @@ class GenericWPS(MonitorPE):
 
     def process(self, inputs):
         """
-        Callback of dispel4py when this PE is ready to be executed
+        Callback of dispel4py when this PE receive an input
         This function is called multiple time if more than one input must be set
         :param inputs: One of the linked input
-        :return: Result or None if not ready to be executed (need more inputs)
+        """
+        # Assign the input internally and wait for all inputs before launching the wps execution
+        self._set_inputs(inputs)
+
+    def postprocess(self):
+        """
+        Callback of dispel4py when this PE has receive all its inputs and thus are ready to execute the wps
         """
         try:
-            # Assign the input internally
-            self._set_inputs(inputs)
-
-            # Check that all required inputs have been set
-            # if not wait (by returning None) for a subsequent process call that will set other inputs
-            if self._is_ready():
-                result = self._execute()
-                if result is not None:
-                    return result
+            self._check_inputs()
+            result = self._execute()
+            if result is not None:
+                #TODO Must forward received headers
+                self.write('reduce_out', DataWrapper(payload=result))
         except Exception:
-            logger.exception("process failed!")
-            raise
-        return None
+           logger.exception("process failed!")
+           raise
 
     @staticmethod
     def check_status(execution):
@@ -404,7 +366,7 @@ class GenericWPS(MonitorPE):
         # Cannot do anything else
         raise self._get_exception(wps_output, wps_input, as_reference)
 
-    def _is_ready(self):
+    def _check_inputs(self):
         """
         Check if all the required wps inputs have been set
         """
@@ -414,8 +376,10 @@ class GenericWPS(MonitorPE):
 
         for linked_input in self.linked_inputs.keys():
             if linked_input not in ready_wps_inputs:
-                return False
-        return True
+                msg = 'Workflow cannot complete because of a missing input {input} of task {task}'.format(
+                    input=linked_input,
+                    task=self.name)
+                raise Exception(msg)
 
     def _set_inputs(self, inputs):
         """
@@ -425,6 +389,9 @@ class GenericWPS(MonitorPE):
 
         for key in inputs.keys():
             if key in wps_inputs:
+                # TODO input will be a datawrapper!
+                self.set_headers(inputs[key].headers)
+
                 # This is the upstream wps output object
                 wps_output = inputs[key]
 
@@ -567,7 +534,12 @@ def run(workflow, monitor=None, headers=None):
 
     # Run the graph
     try:
-        result = simple_process.process(graph, inputs=source_pe)
+        #result = simple_process.process(graph, inputs=source_pe)
+
+        # num_processes = multiprocessing.cpu_count()
+        # Since processes are actually wps call and monitoring don't bottleneck on that
+        num_processes = 4
+        result = multi_process.multiprocess(graph, inputs=source_pe, numProcesses=num_processes)
     except Exception as e:
         # Augment the exception message but conserve the full exception stack
         e.args = ('Cannot run the workflow graph : {0}'.format(str(e)),)
