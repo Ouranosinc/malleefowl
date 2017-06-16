@@ -218,27 +218,30 @@ def nc_copy(source, target, overwrite=True, time_dimname='time', nchunk=10, ista
 
 
 class auto_list:
-    def __init__(self, list, default_val=0):
-        self.list = list
+    def __init__(self, list_inst, default_val=0):
+        self.list = list_inst
         self.default_val = default_val
 
     def __setitem__(self, key, value):
-        size = len(self.list)
-        if key >= size:
-            list.extend([self.default_val for _ in range(size, key + 1)])
-            list[key] = value
+        self.resize(key + 1, self.default_val)
+        self.list[key] = value
 
     def __iter__(self):
-        for val in list:
+        for val in self.list:
             yield val
 
     def __len__(self):
-        return len(list)
+        return len(self.list)
+
+    def resize(self, new_size, default_val=0):
+        size = len(self.list)
+        if new_size > size:
+            self.list.extend([default_val for _ in range(size, new_size)])
 
 
 class DataWrapper:
     HEADERS_MAP_INDEX = 'map_index'
 
-    def __init__(self, payload=None, headers=None):
+    def __init__(self, payload=None, headers={}):
         self.payload = payload
         self.headers = headers
