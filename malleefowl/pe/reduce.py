@@ -3,7 +3,7 @@ import json
 
 from pywps import ComplexOutput
 from pywps import LiteralInput, ComplexInput, BoundingBoxInput
-from pywps import get_format
+from pywps import Format, get_format
 from owslib.wps import Input
 from owslib.wps import Output
 
@@ -47,7 +47,9 @@ class ReducePE(TaskPE):
                       min_occurs=1,
                       max_occurs=sys.maxint)
         if up_task_out_desc.dataType == 'ComplexData':
-            params['supported_formats'] = [get_format(up_task_out_desc.mimeType)]
+            params['supported_formats'] = [Format(mime_type=up_task_out_desc.defaultValue.mimeType,
+                                                  schema=up_task_out_desc.defaultValue.schema,
+                                                  encoding=up_task_out_desc.defaultValue.encoding)]
             self.input_desc = Input(ComplexInput(**params).describe_xml())
         elif up_task_out_desc.dataType == 'BoundingBoxData':
             params['crss'] = up_task_out_desc.supportedValues
@@ -56,12 +58,12 @@ class ReducePE(TaskPE):
             params['data_type'] = up_task_out_desc.dataType
             self.input_desc = Input(LiteralInput(**params).describe_xml())
 
-    def process(self, inputs):
+    def _process(self, inputs):
         for key, value in self._read_inputs(inputs):
             index = self.data_headers[DataWrapper.HEADERS_MAP_INDEX]
             self.output[index] = value
 
-    def postprocess(self):
+    def _postprocess(self):
         self._check_inputs()
 
         # Map index is no more relevant: remove it from the data headers

@@ -245,3 +245,19 @@ class DataWrapper:
     def __init__(self, payload=None, headers={}):
         self.payload = payload
         self.headers = headers
+
+import copy
+
+class Monitor:
+    def __init__(self):
+        pass
+
+    # The progress list must be shared by every worker using this monitor
+    def __deepcopy__(self, memo):
+        return copy.copy(self)
+
+    def update_status(self, message, progress=None):
+        pass
+
+    def raise_exception(self, exception):
+        pass

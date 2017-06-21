@@ -80,7 +80,14 @@ class GenericWPS(ProgressMonitorPE):
                 self._add_input(_input[0])
             self._add_linked_input(_input[0], _input[1])
 
-    def process(self, inputs):
+    def try_connect(self, graph, linked_input, downstream_task, downstream_task_input):
+        if ProgressMonitorPE.try_connect(self, graph, linked_input, downstream_task, downstream_task_input):
+            # Here we added the WPS output name and its as_reference request
+            self.outputs.append((linked_input['output'], linked_input['as_reference']))
+            return True
+        return False
+
+    def _process(self, inputs):
         """
         Callback of dispel4py when this PE receive an input
         This function is called multiple time if more than one input must be set
@@ -90,7 +97,7 @@ class GenericWPS(ProgressMonitorPE):
         for key, value in self._read_inputs(inputs):
             self.inputs.append((key, value))
 
-    def postprocess(self):
+    def _postprocess(self):
         """
         Callback of dispel4py when this PE has receive all its inputs and thus are ready to execute the wps
         """
@@ -100,13 +107,6 @@ class GenericWPS(ProgressMonitorPE):
         except Exception:
             logger.exception("process failed!")
             raise
-
-    def try_connect(self, graph, linked_input, downstream_task, downstream_task_input):
-        if ProgressMonitorPE.try_connect(self, graph, linked_input, downstream_task, downstream_task_input):
-            # Here we added the WPS output name and its as_reference request
-            self.outputs.append((linked_input['output'], linked_input['as_reference']))
-            return True
-        return False
 
     def _connect(self, from_connection, to_node, to_connection, graph):
         # Here we add a PE output that is required before completing the actual connection

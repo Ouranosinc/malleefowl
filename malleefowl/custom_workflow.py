@@ -67,6 +67,7 @@ Example:
 """
 
 import argparse
+from multiprocessing import Manager
 
 from dispel4py.new import multi_process
 from dispel4py.workflow_graph import WorkflowGraph
@@ -90,23 +91,26 @@ def run(workflow, monitor=None, headers=None):
 
     # Create WPS processes and append them in a task array
     tasks = []
-    for task in workflow['tasks']:
-        tasks.append(GenericWPS(headers=headers, monitor=monitor, **task))
 
-    for group in workflow['parallel_groups']:
-        map_pe = MapPE(name=group['name'],
-                       input=group['map'],
-                       monitor=monitor)
-        reduce_pe = ReducePE(name=group['name'],
-                             input=group['reduce'],
-                             monitor=monitor)
-        tasks.extend([map_pe, reduce_pe])
-        for task in group['tasks']:
-            tasks.append(ParallelGenericWPS(group_map_pe=map_pe,
-                                            max_processes=group['max_processes'],
-                                            headers=headers,
-                                            monitor=monitor,
-                                            **task))
+    if 'tasks' in workflow:
+        for task in workflow['tasks']:
+            tasks.append(GenericWPS(headers=headers, monitor=monitor, **task))
+
+    if 'parallel_groups' in workflow:
+        for group in workflow['parallel_groups']:
+            map_pe = MapPE(name=group['name'],
+                           input=group['map'],
+                           monitor=monitor)
+            reduce_pe = ReducePE(name=group['name'],
+                                 input=group['reduce'],
+                                 monitor=monitor)
+            tasks.extend([map_pe, reduce_pe])
+            for task in group['tasks']:
+                tasks.append(ParallelGenericWPS(group_map_pe=map_pe,
+                                                max_processes=group['max_processes'],
+                                                headers=headers,
+                                                monitor=monitor,
+                                                **task))
 
     # Connect each task PE in the dispel graph using the linked inputs information
     # (raise an exception if some connection cannot be done)
@@ -140,12 +144,8 @@ def run(workflow, monitor=None, headers=None):
 
     # Run the graph
     try:
-        # result = simple_process.process(graph, inputs=source_pe)
-        # result = multi_process.multiprocess(graph, inputs=source_pe, numProcesses=num_processes)
-
         args = argparse.Namespace(num=required_num_proc, simple=False)
         result = multi_process.process(graph, inputs=source_pe, args=args)
-
     except Exception as e:
         # Augment the exception message but conserve the full exception stack
         e.args = ('Cannot run the workflow graph : {0}'.format(str(e)),)

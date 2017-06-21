@@ -36,6 +36,8 @@ class ProxyPE(GenericPE):
 
 
 class TaskPE(GenericPE):
+    HEADERS_TASK_NAME = 'task_name'
+
     def __init__(self, name, monitor):
         GenericPE.__init__(self)
 
@@ -52,7 +54,7 @@ class TaskPE(GenericPE):
             Dispatch the message and progress to the monitor if available or to the logger if not
             """
             if self._monitor:
-                self._monitor("{name}: {msg}".format(
+                self._monitor.update_status("{name}: {msg}".format(
                     name=task_name,
                     msg=message),
                     progress)
@@ -65,10 +67,34 @@ class TaskPE(GenericPE):
         # External monitor is bind to the log function using the following closure
         self._external_monitor_closure = log
 
-        # self.monitor = log
-
     def monitor(self, message, progress=None):
         self._external_monitor_closure(self.name, message, progress)
+
+    def process(self, inputs):
+        """
+        Little wrapper over the process function to make sure that no exception is raise above this point
+        Because tasks are run on their own process an exception will be lost and others process will wait forever
+        """
+        try:
+            return self._process(inputs)
+        except Exception as e:
+            # Augment the exception message but conserve the full exception stack
+            e.args = ('Exception occurs in task "{0}" process : {1}'.format(self.name, str(e)),)
+            self._monitor.raise_exception(e)
+        return None
+
+    def postprocess(self):
+        """
+        Little wrapper over the postprocess function to make sure that no exception is raise above this point
+        Because tasks are run on their own process an exception will be lost and others process will wait forever
+        """
+        try:
+            return self._postprocess()
+        except Exception as e:
+            # Augment the exception message but conserve the full exception stack
+            e.args = ('Exception occurs in task "{0}" process : {1}'.format(self.name, str(e)),)
+            self._monitor.raise_exception(e)
+        return None
 
     def get_input_desc(self, input_name):
         raise NotImplementedError
@@ -147,6 +173,8 @@ class TaskPE(GenericPE):
         if outputs:
             if extra_headers:
                 self.data_headers.update(extra_headers)
+            self.data_headers[TaskPE.HEADERS_TASK_NAME] = self.name
+
             for key, value in outputs.items():
                 self.monitor('{name} is sending value - [{headers}] {key}:{val}'.format(name=self.name,
                                                                                         headers=self.data_headers,
@@ -165,15 +193,14 @@ class TaskPE(GenericPE):
                 # Accumulate in data headers all headers received, so we can send them once finished
                 self.data_headers.update(inputs[key].headers)
 
-                # This is the upstream output object
-                input_value = inputs[key].payload
-
-                # This is the required input object type
-                input_desc = self.get_input_desc(key)
+                linked_input_tasks = {x[1]['task']:x[1] for x in self.linked_inputs if x[0] == key}
+                data_task = self.data_headers[TaskPE.HEADERS_TASK_NAME]
 
                 # Now we try to do most of the conversion job between these two data types with the knowledge we have
                 # and append the new wps input into the list
-                for value in self._adapt(input_value, input_desc):
+                for value in self._adapt(input_value=inputs[key].payload,
+                                         input_desc=self.get_input_desc(key),
+                                         expecting_reference=linked_input_tasks[data_task].get('as_reference', False)):
                     self.monitor('{name} is reading value - [{headers}] {key}:{val}'.format(name=self.name,
                                                                                             headers=self.data_headers,
                                                                                             key=key,
@@ -221,7 +248,7 @@ class TaskPE(GenericPE):
             # Don't raise exceptions coming from that.
             return None
 
-    def _adapt(self, input_value, input_desc):
+    def _adapt(self, input_value, input_desc, expecting_reference):
         """
         Try to fit the input_value to the needs of the downstream task input requirements
         This can involve returning the data or its reference, parsing the reference to return its content or even
@@ -229,8 +256,8 @@ class TaskPE(GenericPE):
         The function will raise an exception if the input_value cannot met the input requirements
         :param input_value: output data as returned by the upstream task.
                             This object come from the WPSExecution.processOutputs array of (ows.wps.Output) object
-        :param input_desc: input description as declared by the downstream task
-        (
+        :param input_desc: input description as declared by the current task
+        :param expecting_reference: indicate if the current task expects the input_value as reference or not
         :return: The data in the required form
                  The data will be feed to the WebProcessingService.execute function which expect an array of inputs
                  where the input can be :
@@ -246,12 +273,17 @@ class TaskPE(GenericPE):
         output_data = None
         output_datatype = [input_value.dataType, ]
 
-        # If a reference is available consider it as the data from this point
         if input_value.reference:
-            output_data = input_value.reference
+            # If a reference is available and we expect a reference consider it as the data from this point
+            if expecting_reference:
+                output_data = input_value.reference
 
-            # Append the string datatype since a reference can be considered as a string too by the downstream process
-            output_datatype.append('string')
+                # Append the string datatype since a reference can be considered as a string too
+                output_datatype.append('string')
+
+            # If we expect the data read the reference
+            else:
+                output_data = self._read_reference(input_value.reference)
 
         # process output data are append into a list so extract the first value here
         elif isinstance(input_value.data, list) and len(input_value.data) == 1:
@@ -276,8 +308,8 @@ class TaskPE(GenericPE):
         # validation since the json content type cannot be verified.
         take_array = input_desc.maxOccurs > 1
         if take_array and 'ComplexData' in output_datatype and input_value.mimeType == 'application/json':
-            # If the json data is referenced read it now
-            if input_value.reference:
+            # If the json data is referenced and hasn't already been read, read it now
+            if input_value.reference and expecting_reference:
                 output_data = self._read_reference(input_value.reference)
 
             json_data = json.loads(output_data)

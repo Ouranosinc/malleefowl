@@ -5,7 +5,7 @@ from multiprocessing import Manager
 
 from pywps import LiteralOutput, ComplexOutput, BoundingBoxOutput
 from pywps import ComplexInput
-from pywps import get_format
+from pywps import Format, get_format
 from owslib.wps import Input, Output
 
 from malleefowl.utils import DataWrapper, auto_list
@@ -53,9 +53,12 @@ class MapPE(TaskPE):
             params = dict(identifier=self.MAP_OUTPUT,
                           title=self.MAP_OUTPUT)
             if down_task_in_desc.dataType == 'ComplexData':
-                params['supported_formats'] = [get_format(down_task_in_desc.supportedValues[0].mimeType)]
+                params['supported_formats'] = [Format(mime_type=down_task_in_desc.defaultValue.mimeType,
+                                                      schema=down_task_in_desc.defaultValue.schema,
+                                                      encoding=down_task_in_desc.defaultValue.encoding)]
                 params['as_reference'] = False
                 self.output_desc = Output(ComplexOutput(**params).describe_xml())
+                self.output_desc.mimeType = down_task_in_desc.defaultValue.mimeType
             elif down_task_in_desc.dataType == 'BoundingBoxData':
                 params['crss'] = down_task_in_desc.supportedValues
                 params['as_reference'] = False
@@ -80,9 +83,7 @@ class MapPE(TaskPE):
             return self.output_desc
         return None
 
-
-
-    def process(self, inputs):
+    def _process(self, inputs):
         if self.static_input_list:
             self._map_input_list(self.static_input_list)
         else:
