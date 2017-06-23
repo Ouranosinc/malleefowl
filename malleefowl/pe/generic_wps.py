@@ -83,7 +83,8 @@ class GenericWPS(ProgressMonitorPE):
     def try_connect(self, graph, linked_input, downstream_task, downstream_task_input):
         if ProgressMonitorPE.try_connect(self, graph, linked_input, downstream_task, downstream_task_input):
             # Here we added the WPS output name and its as_reference request
-            self.outputs.append((linked_input['output'], linked_input['as_reference']))
+            self.outputs.append((linked_input.get('output', self._get_default_output()),
+                                 linked_input.get('as_reference', False)))
             return True
         return False
 
@@ -112,6 +113,11 @@ class GenericWPS(ProgressMonitorPE):
         # Here we add a PE output that is required before completing the actual connection
         self._add_output(from_connection)
         ProgressMonitorPE._connect(self, from_connection, to_node, to_connection, graph)
+
+    def _get_default_output(self):
+        if len(self.proc_desc.processOutputs) == 1:
+            return self.proc_desc.processOutputs[0].identifier
+        return None
 
     def get_input_desc(self, input_name):
         for wps_input in self.proc_desc.dataInputs:
@@ -187,7 +193,7 @@ class GenericWPS(ProgressMonitorPE):
         """
 
         progress = self.progress(execution)
-        #self.monitor("status_location={0.statusLocation}".format(execution), progress)
+        self.monitor("status_location={0.statusLocation}".format(execution), progress)
 
         xml_doc_read_failure = 0
         while execution.isNotComplete():
@@ -207,7 +213,7 @@ class GenericWPS(ProgressMonitorPE):
                     sleep(5)
             else:
                 progress = self.progress(execution)
-                #self.monitor(execution.statusMessage, progress)
+                self.monitor(execution.statusMessage, progress)
 
         self.monitor(execution.statusMessage, progress)
 
@@ -215,17 +221,15 @@ class GenericWPS(ProgressMonitorPE):
         if execution.isSucceded():
             for output in execution.processOutputs:
                 if output.reference is not None:
-                    #self.monitor(
-                    #    '{0.identifier}={0.reference} ({0.mimeType})'.
-                    #    format(output),
-                    #    progress)
-                    pass
+                    self.monitor(
+                        '{0.identifier}={0.reference} ({0.mimeType})'.
+                        format(output),
+                        progress)
                 else:
-                    #self.monitor(
-                    #    '{0}={1}'.
-                    #    format(output.identifier, ", ".join(output.data)),
-                    #    progress)
-                    pass
+                    self.monitor(
+                        '{0}={1}'.
+                        format(output.identifier, ", ".join(output.data)),
+                        progress)
 
         # Or log the errors
         else:
