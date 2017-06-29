@@ -1,4 +1,4 @@
-import yaml
+import json
 import traceback
 from datetime import datetime
 
@@ -21,17 +21,17 @@ class DispelCustomWorkflow(Process, Monitor):
     def __init__(self):
         inputs = [
             ComplexInput('workflow', 'Workflow description',
-                         abstract='Workflow description in YAML.',
+                         abstract='Workflow description in JSON.',
                          metadata=[Metadata('Info')],
                          min_occurs=1,
                          max_occurs=1,
-                         supported_formats=[Format('text/yaml')]),
+                         supported_formats=[Format('application/json')]),
         ]
         outputs = [
             ComplexOutput('output', 'Workflow result',
-                          abstract="Workflow result document in YAML.",
-                          as_reference=True,
-                          supported_formats=[Format('text/yaml')]),
+                          abstract="Workflow result document in JSON.",
+                          as_reference=False,
+                          supported_formats=[Format('application/json')]),
             ComplexOutput('logfile', 'Workflow log file',
                           abstract="Workflow log file.",
                           as_reference=True,
@@ -58,19 +58,22 @@ class DispelCustomWorkflow(Process, Monitor):
         self.full_log = synch.list()
         self.overall_progress = synch.dict()
         self.exceptions_list = synch.list()
+        self.result_summary = synch.dict()
 
     def _handler(self, request, response):
         # Reset and preparation
         del self.full_log[:]
+        del self.exceptions_list[:]
+        self.result_summary.clear()
         self.overall_progress['progress'] = 0
         self.response = response
         self.update_status("starting workflow ...", 0)
 
         # Load the workflow
-        workflow = yaml.load(request.inputs['workflow'][0].stream)
+        workflow = json.load(request.inputs['workflow'][0].stream)
         workflow_name = workflow.get('name', 'unknown')
         self.update_status("workflow {0} prepared.".format(workflow_name), 0)
-        self.full_log.append(yaml.dump(workflow))
+        self.full_log.append(json.dumps(workflow))
 
         # Prepare headers
         headers = {}
@@ -81,15 +84,17 @@ class DispelCustomWorkflow(Process, Monitor):
 
         # Run the workflow
         try:
-            result = run(workflow, monitor=self, headers=headers)
+            run(workflow, monitor=self, headers=headers)
             self.update_status("workflow {0} done.".format(workflow_name), 100)
-            self.full_log.append('\nWorkflow result:\n{0}'.format(yaml.dump(result)))
+
+            formatted_summary = self._format_summary()
+            self.full_log.append('\nWorkflow result:\n{0}'.format(json.dumps(formatted_summary)))
         except Exception as e:
             self.raise_exception(e)
 
         # Handle exceptions (if any)
         if len(self.exceptions_list) > 0:
-            full_msg = ('Catch {nb_e} exception(s) while running the workflow:\n'
+            full_msg = ('\nCatch {nb_e} exception(s) while running the workflow:\n'
                         '{exceptions}\n\n'
                         'Execution log:\n{log}').format(
                 nb_e=len(self.exceptions_list),
@@ -105,7 +110,7 @@ class DispelCustomWorkflow(Process, Monitor):
             response.outputs['logfile'].file = fp.name
 
         with open('output.txt', 'w') as fp:
-            yaml.dump(result, stream=fp)
+            fp.write(json.dumps(formatted_summary))
             response.outputs['output'].file = fp.name
 
         return response
@@ -128,3 +133,19 @@ class DispelCustomWorkflow(Process, Monitor):
 
     def raise_exception(self, exception):
         self.exceptions_list.append(traceback.format_exc())
+
+    def save_task_result(self, task, result):
+        if task in self.result_summary:
+            task_result = self.result_summary[task]
+            task_result['processes'].append(result)
+            self.result_summary.update({task: task_result})
+        else:
+            result.update()
+            self.result_summary.update({task: dict(execution_order=len(self.result_summary) + 1,
+                                                   processes=[result, ])})
+
+    def _format_summary(self):
+        ordered_task = sorted(self.result_summary.items(), key=lambda x: x[1]['execution_order'])
+
+        return [{task[0]: sorted(task[1]['processes'], key=lambda x: x.get('data_id', 0))} for task in ordered_task]
+        return ordered_summary

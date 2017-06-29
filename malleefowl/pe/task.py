@@ -67,8 +67,16 @@ class TaskPE(GenericPE):
         # External monitor is bind to the log function using the following closure
         self._external_monitor_closure = log
 
+        def save_result(task_name, result):
+            self._monitor.save_task_result(task_name, result)
+
+        self._external_save_result_closure = save_result
+
     def monitor(self, message, progress=None):
         self._external_monitor_closure(self.name, message, progress)
+
+    def save_result(self, result):
+        self._external_save_result_closure(self.name, result)
 
     def process(self, inputs):
         """
@@ -285,8 +293,9 @@ class TaskPE(GenericPE):
             else:
                 output_data = self._read_reference(input_value.reference)
 
-        # process output data are append into a list so extract the first value here
-        elif isinstance(input_value.data, list) and len(input_value.data) == 1:
+        # process output data are append into a list and
+        # WPS standard v1.0.0 specify that Output data field has zero or one value
+        elif input_value.data:
             output_data = input_value.data[0]
 
         # At this point raise an exception if we don't have data in wps_output.data

@@ -261,3 +261,6 @@ class Monitor:
 
     def raise_exception(self, exception):
         pass
+
+    def save_task_result(self, task, result):
+        pass

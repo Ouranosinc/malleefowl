@@ -242,7 +242,6 @@ workflow_schema = {
 }
 
 
-
 def run(workflow, monitor=None, headers=None):
     """
     Run the given workflow
@@ -313,20 +312,8 @@ def run(workflow, monitor=None, headers=None):
     # Run the graph
     try:
         args = argparse.Namespace(num=required_num_proc, simple=False)
-        result = multi_process.process(graph, inputs=source_pe, args=args)
+        multi_process.process(graph, inputs=source_pe, args=args)
     except Exception as e:
         # Augment the exception message but conserve the full exception stack
         e.args = ('Cannot run the workflow graph : {0}'.format(str(e)),)
         raise
-
-    summary = {}
-    for task in tasks:
-        try:
-            summary[task.name] =\
-                {'status_location': result.get((task.id, task.STATUS_LOCATION_NAME))[0],
-                 'status': result.get((task.id, task.STATUS_NAME))[0]}
-        # Map/Reduce tasks has no status location property, continue silently on exception for that
-        # TODO: Get the proper exception type
-        except Exception as _:
-            continue
-    return summary

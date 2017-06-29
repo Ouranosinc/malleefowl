@@ -4,7 +4,7 @@ from time import sleep
 
 from owslib.wps import WebProcessingService
 # For check_status function
-from owslib.wps import WPSExecuteReader
+from owslib.wps import WPSExecuteReader, ComplexData
 from owslib.etree import etree
 
 from malleefowl.pe.progress_monitor import ProgressMonitorPE, RangeProgress, RangeGroupProgress
@@ -23,6 +23,8 @@ class GenericWPS(ProgressMonitorPE):
     """
     STATUS_NAME = 'status'
     STATUS_LOCATION_NAME = 'status_location'
+    OUTPUT_NAME = 'outputs'
+
     DUMMY_INPUT_NAME = 'None'
 
     def __init__(self, name, url, identifier,
@@ -57,9 +59,6 @@ class GenericWPS(ProgressMonitorPE):
             progress_range = [0, 100]
 
         self.set_progress_provider(RangeProgress(progress_range[0], progress_range[1]))
-
-        self._add_output(self.STATUS_NAME)
-        self._add_output(self.STATUS_LOCATION_NAME)
 
         self.wps = WebProcessingService(url=url, skip_caps=True, verify=False, headers=headers)
         self.identifier = identifier
@@ -237,6 +236,35 @@ class GenericWPS(ProgressMonitorPE):
                 ['ERROR: {0.text} code={0.code} locator={0.locator})'.
                     format(ex) for ex in execution.errors]), progress)
 
+    def get_output_datatype(self, output):
+        # outputs from execution structure do not always carry the dataType
+        # so find it from the process description
+        if not output.dataType:
+            for desc_wps_output in self.proc_desc.processOutputs:
+                if desc_wps_output.identifier == output.identifier:
+                    return desc_wps_output.dataType
+        # Also the datatype is not always stripped correctly so do the job here
+        return output.dataType.split(':')[-1]
+
+    def _jsonify_output(self, output):
+        """
+        Utility method to jsonify an output element.
+        """
+        json_output = dict(identifier=output.identifier,
+                           title=output.title,
+                           dataType=self.get_output_datatype(output))
+
+        # WPS standard v1.0.0 specify that either a reference or a data field has to be provided
+        if output.reference:
+            json_output['reference'] = output.reference
+        else:
+            # WPS standard v1.0.0 specify that Output data field has Zero or one value
+            json_output['data'] = output.data[0] if output.data else None
+
+        if json_output['dataType'] == 'ComplexData':
+            json_output['mimeType'] = output.mimeType
+        return json_output
+
     def _execute(self):
         """
         This is the function doing the actual WPS process call, monitoring its execution and parsing the output.
@@ -255,10 +283,16 @@ class GenericWPS(ProgressMonitorPE):
         self.set_headers(self.data_headers)
         self._monitor_execution(execution)
 
-        result = {self.STATUS_NAME: execution.status,
-                  self.STATUS_LOCATION_NAME: execution.statusLocation}
+        execution_result = {self.STATUS_NAME: execution.status,
+                            self.STATUS_LOCATION_NAME: execution.statusLocation}
 
         if execution.isSucceded():
+            execution_result[self.OUTPUT_NAME] = \
+                [self._jsonify_output(output) for output in execution.processOutputs]
+
+            self.save_result(execution_result)
+
+            result = {}
             # NOTE: only set workflow output if specific output was needed
             for wps_output in self.outputs:
                 for output in execution.processOutputs:
@@ -335,16 +369,25 @@ class ParallelGenericWPS(GenericWPS):
         """
         return None
 
-    def monitor(self, message, progress=None):
+    def _get_map_idx(self):
         try:
-            map_idx = self.data_headers[DataWrapper.HEADERS_MAP_INDEX]
+            return self.data_headers[DataWrapper.HEADERS_MAP_INDEX]
         except KeyError:
-            map_idx = None
+            return None
+
+    def monitor(self, message, progress=None):
+        map_idx = self._get_map_idx()
         self._external_monitor_closure('{name}-r{rank}-m{mi}'.format(name=self.name,
                                                                      rank='' if self.rank is None else self.rank,
                                                                      mi='' if map_idx is None else map_idx),
                                        message,
                                        progress)
+
+    def save_result(self, result):
+        map_idx = self._get_map_idx()
+        result.update(dict(data_id=map_idx,
+                           process_id=self.rank))
+        GenericWPS.save_result(self, result)
 
     def _validate_inputs(self, inputs, linked_inputs):
         """
