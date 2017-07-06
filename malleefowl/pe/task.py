@@ -48,35 +48,19 @@ class TaskPE(GenericPE):
         # External monitor (not to be used directly)
         self._monitor = monitor
 
-        # Create a closure log function (self._monitor will be capture by the closure)
-        def log(task_name, message, progress=None):
-            """
-            Dispatch the message and progress to the monitor if available or to the logger if not
-            """
-            if self._monitor:
-                self._monitor.update_status("{name}: {msg}".format(
-                    name=task_name,
-                    msg=message),
-                    progress)
-            else:
-                logger.info('STATUS (%s%s) - %s',
-                            task_name,
-                            ': %s/100'.format(progress) if progress else '',
-                            message)
-
-        # External monitor is bind to the log function using the following closure
-        self._external_monitor_closure = log
-
-        def save_result(task_name, result):
-            self._monitor.save_task_result(task_name, result)
-
-        self._external_save_result_closure = save_result
-
-    def monitor(self, message, progress=None):
-        self._external_monitor_closure(self.name, message, progress)
+    def monitor(self, message, progress=None, task_name=None):
+        if self._monitor:
+            self._monitor.update_status("{name}: {msg}".format(name=task_name or self.name,
+                                                               msg=message),
+                                        progress)
+        else:
+            logger.info('STATUS (%s%s) - %s',
+                        task_name or self.name,
+                        ': %s/100'.format(progress) if progress else '',
+                        message)
 
     def save_result(self, result):
-        self._external_save_result_closure(self.name, result)
+        self._monitor.save_task_result(self.name, result)
 
     def process(self, inputs):
         """
@@ -179,16 +163,17 @@ class TaskPE(GenericPE):
 
     def _send_outputs(self, outputs, extra_headers=None):
         if outputs:
+            data_headers = copy.deepcopy(self.data_headers)
             if extra_headers:
-                self.data_headers.update(extra_headers)
-            self.data_headers[TaskPE.HEADERS_TASK_NAME] = self.name
+                data_headers.update(extra_headers)
+            data_headers[TaskPE.HEADERS_TASK_NAME] = self.name
 
             for key, value in outputs.items():
                 self.monitor('{name} is sending value - [{headers}] {key}:{val}'.format(name=self.name,
-                                                                                        headers=self.data_headers,
+                                                                                        headers=data_headers,
                                                                                         key=key,
                                                                                         val=value))
-                self.write(key, DataWrapper(payload=value, headers=copy.deepcopy(self.data_headers)))
+                self.write(key, DataWrapper(payload=value, headers=data_headers))
 
     def _read_inputs(self, inputs):
         """
@@ -202,7 +187,7 @@ class TaskPE(GenericPE):
                 self.data_headers.update(inputs[key].headers)
 
                 linked_input_tasks = {x[1]['task']:x[1] for x in self.linked_inputs if x[0] == key}
-                data_task = self.data_headers[TaskPE.HEADERS_TASK_NAME]
+                data_task = inputs[key].headers[TaskPE.HEADERS_TASK_NAME]
 
                 # Now we try to do most of the conversion job between these two data types with the knowledge we have
                 # and append the new wps input into the list
@@ -210,7 +195,7 @@ class TaskPE(GenericPE):
                                          input_desc=self.get_input_desc(key),
                                          expecting_reference=linked_input_tasks[data_task].get('as_reference', False)):
                     self.monitor('{name} is reading value - [{headers}] {key}:{val}'.format(name=self.name,
-                                                                                            headers=self.data_headers,
+                                                                                            headers=inputs[key].headers,
                                                                                             key=key,
                                                                                             val=value))
                     yield (key, value)

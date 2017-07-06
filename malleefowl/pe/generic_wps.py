@@ -196,6 +196,9 @@ class GenericWPS(ProgressMonitorPE):
         self.monitor("status_location={0.statusLocation}".format(execution), progress)
 
         xml_doc_read_failure = 0
+
+        last_status_message = None
+        last_progress = None
         while execution.isNotComplete():
             try:
                 # Check the status of the wps execution
@@ -213,7 +216,10 @@ class GenericWPS(ProgressMonitorPE):
                     sleep(5)
             else:
                 progress = self.progress(execution)
-                self.monitor(execution.statusMessage, progress)
+                if execution.statusMessage != last_status_message or progress != last_progress:
+                    last_status_message = execution.statusMessage
+                    last_progress = progress
+                    self.monitor(execution.statusMessage, progress)
 
         self.monitor(execution.statusMessage, progress)
 
@@ -374,25 +380,25 @@ class ParallelGenericWPS(GenericWPS):
         """
         return None
 
-    def _get_map_idx(self):
-        try:
-            return self.data_headers[DataWrapper.HEADERS_MAP_INDEX]
-        except KeyError:
-            return None
-
-    def monitor(self, message, progress=None):
-        map_idx = self._get_map_idx()
-        self._external_monitor_closure('{name}-r{rank}-m{mi}'.format(name=self.name,
-                                                                     rank='' if self.rank is None else self.rank,
-                                                                     mi='' if map_idx is None else map_idx),
-                                       message,
-                                       progress)
+    def monitor(self, message, progress=None, task_name=None):
+        if not task_name:
+            map_idx = self._get_map_idx()
+            task_name = '{name}-proc{proc}-data{data}'.format(name=self.name,
+                                                              proc='' if self.rank is None else self.rank,
+                                                              data='' if map_idx is None else map_idx)
+        GenericWPS.monitor(self, message, progress=progress, task_name=task_name)
 
     def save_result(self, result):
         map_idx = self._get_map_idx()
         result.update(dict(data_id=map_idx,
                            process_id=self.rank))
         GenericWPS.save_result(self, result)
+
+    def _get_map_idx(self):
+        try:
+            return self.data_headers[DataWrapper.HEADERS_MAP_INDEX]
+        except KeyError:
+            return None
 
     def _validate_inputs(self, inputs, linked_inputs):
         """

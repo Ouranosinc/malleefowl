@@ -72,8 +72,10 @@ class DispelCustomWorkflow(Process, Monitor):
         # Load the workflow
         workflow = json.load(request.inputs['workflow'][0].stream)
         workflow_name = workflow.get('name', 'unknown')
-        self.update_status("workflow {0} prepared.".format(workflow_name), 0)
-        self.full_log.append(json.dumps(workflow))
+        self.update_status("workflow {0} prepared:".format(workflow_name), 0)
+        self.full_log.append(json.dumps(workflow,
+                                        indent=4,
+                                        separators=(',', ': ')))
 
         # Prepare headers
         headers = {}
@@ -88,7 +90,11 @@ class DispelCustomWorkflow(Process, Monitor):
             self.update_status("workflow {0} done.".format(workflow_name), 100)
 
             formatted_summary = self._format_summary()
-            self.full_log.append('\nWorkflow result:\n{0}'.format(json.dumps(formatted_summary)))
+            self.full_log.append('Workflow result:')
+            self.full_log.append(json.dumps(formatted_summary,
+                                            indent=4,
+                                            separators=(',', ': '),
+                                            sort_keys=True))
         except Exception as e:
             self.raise_exception(e)
 
@@ -109,8 +115,8 @@ class DispelCustomWorkflow(Process, Monitor):
             fp.write('\n'.join(self.full_log))
             response.outputs['logfile'].file = fp.name
 
-        with open('output.txt', 'w') as fp:
-            fp.write(json.dumps(formatted_summary))
+        with open('output.json', 'w') as fp:
+            fp.write(json.dumps(formatted_summary, sort_keys=True))
             response.outputs['output'].file = fp.name
 
         return response
@@ -123,7 +129,7 @@ class DispelCustomWorkflow(Process, Monitor):
 
         logger.debug('{progress:>4}%: {msg}'.format(progress=progress, msg=message))
 
-        log = '{timestamp}{progress:>4}%: {msg}\n'.format(
+        log = '{timestamp}{progress:>4}%: {msg}'.format(
             timestamp=datetime.now().strftime('%H:%M:%S'),
             progress=progress,
             msg=message)
