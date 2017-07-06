@@ -68,7 +68,8 @@ class GenericWPS(ProgressMonitorPE):
 
         # These are the static inputs
         # (linked inputs will be appended to inputs just before execution by the _set_inputs function)
-        self.inputs = inputs
+        self.static_inputs = inputs
+        self.dynamic_inputs = []
 
         # Will be filled as PE are connected to us (by the get_output function)
         self.outputs = []
@@ -95,7 +96,7 @@ class GenericWPS(ProgressMonitorPE):
         """
         # Assign the input internally and wait for all inputs before launching the wps execution
         for key, value in self._read_inputs(inputs):
-            self.inputs.append((key, value))
+            self.dynamic_inputs.append((key, value))
 
     def _postprocess(self):
         """
@@ -153,7 +154,7 @@ class GenericWPS(ProgressMonitorPE):
         """
         Check if all the required inputs have been set (from workflow static inputs or from upstream tasks)
         """
-        ready_inputs = [_input[0] for _input in self.inputs]
+        ready_inputs = [_input[0] for _input in self.static_inputs + self.dynamic_inputs]
 
         # Consider the dummy input to be always ready!
         ready_inputs.append(self.DUMMY_INPUT_NAME)
@@ -270,18 +271,22 @@ class GenericWPS(ProgressMonitorPE):
         This is the function doing the actual WPS process call, monitoring its execution and parsing the output.
         :return: Return the data that is send to the downstream PE
         """
-        logger.debug("execute with inputs=%s to get outputs=%s", self.inputs, self.outputs)
+        logger.debug("execute with static inputs=%s and dynamic inputs=%s to get outputs=%s",
+                     self.static_inputs, self.dynamic_inputs, self.outputs)
 
         self.wps.headers['machineid'] = ''.join(
             random.choice(string.ascii_lowercase + string.digits) for _ in range(16))
 
         execution = self.wps.execute(
             identifier=self.identifier,
-            inputs=self.inputs,
+            inputs=self.static_inputs + self.dynamic_inputs,
             output=self.outputs,
             lineage=True)
         self.set_headers(self.data_headers)
         self._monitor_execution(execution)
+
+        # Reset dynamic inputs for the next iteration
+        self.dynamic_inputs = []
 
         execution_result = {self.STATUS_NAME: execution.status,
                             self.STATUS_LOCATION_NAME: execution.statusLocation}
