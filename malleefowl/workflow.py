@@ -1,14 +1,15 @@
 from owslib.wps import WebProcessingService
 from owslib.wps import ComplexDataInput
+from owslib.wps import BoundingBoxDataInput
 
 from dispel4py.workflow_graph import WorkflowGraph
-from dispel4py import simple_process
+from dispel4py.new import simple_process
 from dispel4py.base import BasePE
 
 from malleefowl.config import wps_url
 
 import logging
-logger = logging.getLogger("PYWPS")
+LOGGER = logging.getLogger("PYWPS")
 
 
 class MonitorPE(BasePE):
@@ -26,7 +27,7 @@ class MonitorPE(BasePE):
                     self.identifier, message),
                     progress)
             else:
-                logger.info('STATUS ({0}: {2}/100) - {1}'.format(
+                LOGGER.info('STATUS ({0}: {2}/100) - {1}'.format(
                     self.identifier, message, progress))
         self.monitor = log
         self._monitor = None
@@ -69,37 +70,51 @@ class GenericWPS(MonitorPE):
             try:
                 execution.checkStatus(sleepSecs=3)
             except:
-                logger.exception("Could not read status xml document.")
+                LOGGER.exception("Could not read status xml document.")
             else:
                 progress = self.progress(execution)
                 self.monitor(execution.statusMessage, progress)
 
         if execution.isSucceded():
             for output in execution.processOutputs:
-                if output.reference is not None:
-                    self.monitor(
-                        '{0.identifier}={0.reference} ({0.mimeType})'.
-                        format(output),
-                        progress)
-                else:
-                    self.monitor(
-                        '{0}={1}'.
-                        format(output.identifier, ", ".join(output.data)),
-                        progress)
+                self.monitor('ouput={0.identifier}'.format(output), progress)
         else:
             self.monitor('\n'.join(
                 ['ERROR: {0.text} code={0.code} locator={0.locator})'.
                     format(ex) for ex in execution.errors]), progress)
 
-    def execute(self):
-        output = []
+    def _build_wps_inputs(self):
+        process = self.wps.describeprocess(self.identifier)
+        complex_inpts = []
+        bbox_inpts = []
+        for inpt in process.dataInputs:
+            if 'ComplexData' in inpt.dataType:
+                complex_inpts.append(inpt.identifier)
+            elif 'BoundingBoxData' in inpt.dataType:
+                bbox_inpts.append(inpt.identifier)
+        inputs = []
+        for inpt in self.wps_inputs:
+            LOGGER.debug("input=%s", inpt)
+            if inpt[0] in complex_inpts:
+                inputs.append((inpt[0], ComplexDataInput(inpt[1])))
+            elif inpt[0] in bbox_inpts:
+                inputs.append((inpt[0], BoundingBoxDataInput(inpt[1])))
+            else:
+                inputs.append(inpt)
+        return inputs
+
+    def _build_wps_outputs(self):
+        outputs = []
         if self.wps_output is not None:
-            output = [(self.wps_output, True)]
-        logger.debug("execute inputs=%s", self.wps_inputs)
+            outputs = [(self.wps_output, True)]
+        return outputs
+
+    def execute(self):
+        LOGGER.debug("execute inputs=%s", self.wps_inputs)
         execution = self.wps.execute(
             identifier=self.identifier,
-            inputs=self.wps_inputs,
-            output=output,
+            inputs=self._build_wps_inputs(),
+            output=self._build_wps_outputs(),
             lineage=True)
         self.monitor_execution(execution)
 
@@ -118,11 +133,9 @@ class GenericWPS(MonitorPE):
                                     format(ex) for ex in execution.errors])
             raise Exception(failure_msg)
 
-    def _set_inputs(self, inputs, complextype=False):
+    def _set_inputs(self, inputs):
         if self.INPUT_NAME in inputs:
             for value in inputs[self.INPUT_NAME]:
-                if complextype is True:
-                    value = ComplexDataInput(value)
                 self.wps_inputs.append((self.wps_resource, value))
 
     def process(self, inputs):
@@ -131,11 +144,11 @@ class GenericWPS(MonitorPE):
             if result is not None:
                 return result
         except Exception:
-            logger.exception("process failed!")
+            LOGGER.exception("process failed!")
             raise
 
     def _process(self, inputs):
-        self._set_inputs(inputs, complextype=True)
+        self._set_inputs(inputs)
         return self.execute()
 
 
@@ -215,7 +228,7 @@ class SolrSearch(MonitorPE):
         if len(urls) == 0:
             raise Exception('Could not find any files.')
         elif len(urls) != search_result.hits:
-            logger.warn(
+            LOGGER.warn(
                 'Not all found items from solr search have a download url.')
         result = {}
         result[self.OUTPUT_NAME] = urls
@@ -227,7 +240,7 @@ class Download(GenericWPS):
         GenericWPS.__init__(self, url, 'download', output='output', headers=headers)
 
     def _process(self, inputs):
-        self._set_inputs(inputs, complextype=False)
+        self._set_inputs(inputs)
         result = self.execute()
 
         # read json document with list of urls
