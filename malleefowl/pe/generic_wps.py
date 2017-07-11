@@ -360,7 +360,7 @@ class ParallelGenericWPS(GenericWPS):
         self.numprocesses = max_processes
         self.set_progress_provider(RangeGroupProgress(group_map_pe, progress_range[0], progress_range[1]))
 
-    def process(self, inputs):
+    def _process(self, inputs):
         """
         ParallelGenericWPS do not support more than one linked inputs because their process function will be called
         multiple times but for different mapped jobs. Trying to match 2 linked inputs part of the same job could prove
@@ -369,12 +369,12 @@ class ParallelGenericWPS(GenericWPS):
         """
 
         # Assign inputs
-        GenericWPS.process(self, inputs)
+        GenericWPS._process(self, inputs)
 
         # Launch the wps execution
-        GenericWPS.postprocess(self)
+        GenericWPS._postprocess(self)
 
-    def postprocess(self):
+    def _postprocess(self):
         """
         Override the GenericWPS postprocess function because ParallelGenericWPS execution happens at each process call
         """
