@@ -1,74 +1,65 @@
 """
 Run custom workflow without prior knowledge of the underlying component except the fact that they are WPS
-The workflow must have the following structure:
-
-Dict of 2 elements :
-
-* name : Workflow name
-* tasks : Array of workflow task, each describe by a dict :
-
-  * name : Unique name given to each workflow task
-  * url : Url of the WPS provider
-  * identifier : Identifier of a WPS process
-  * inputs : Array of static input required by the WPS process, each describe by a 2 elements array :
-
-    * Name of the input
-    * Value of the input
-
-  * linked_inputs : Array of dynamic input required by the WPS process and obtained by the output of other tasks,
-                    each describe by a 2 elements array :
-
-    * Name of the input
-    * Provenance of the input, describe by a dict :
-
-      * task : Name of the task from which this input must come from
-      * output : Name of the task output that will be linked
-      * as_reference : Specify the required form of the input(1) [True: Expect an URL to the input,
-                                                                 False: Expect the data directly]
-
-  * progress_range : 2 elements array defining the overall progress range of this task :
-
-    * Start
-    * End
-
-(1) The workflow executor is able obviously to assign a reference output to an expected reference input and
-a data output to an expected data input but will also be able to read the value of a reference output to send the
-expected data input. However, a data output linked to an expected reference input will yield to an exception.
+The workflow must respect the schema described by "workflow_schema"
 
 Example:
 
 .. code-block:: json
 
     {
-        "name": "Subsetting workflow",
+        "name": "workflow_demo_1",
         "tasks": [
             {
                 "name": "Downloading",
                 "url": "http://localhost:8091/wps",
                 "identifier": "thredds_download",
-                "inputs": [["url", "http://localhost:8083/thredds/catalog/birdhouse/catalog.xml"]],
-                "progress_range": [0, 50]
-            },
+                "inputs": {
+                    "url": "http://localhost:8083/thredds/catalog/birdhouse/catalog.xml"
+                },
+                "progress_range": [0, 40]
+            }
+        ],
+        "parallel_groups": [
             {
-                "name": "Subsetting",
-                "url": "http://localhost:8093/wps",
-                "identifier": "subset_WFS",
-                "inputs": [["typename", "ADMINBOUNDARIES:canada_admin_boundaries"],
-                           ["featureids", "canada_admin_boundaries.5"],
-                           ["mosaic", "False"]],
-                "linked_inputs": [["resource", { "task": "Downloading",
-                                                 "output": "output",
-                                                 "as_reference": False}],],
-                "progress_range": [50, 100]
-            },
+                "name": "SubsetterGroup",
+                "max_processes": 2,
+                "map": {
+                    "task": "Downloading",
+                    "output": "output",
+                    "as_reference": false
+                },
+                "reduce": {
+                    "task": "Subsetting",
+                    "output": "ncout",
+                    "as_reference": true
+                },
+                "tasks": [
+                    {
+                        "name": "Subsetting",
+                        "url": "http://localhost:8093/wps",
+                        "identifier": "subset_WFS",
+                        "inputs": {
+                            "typename": "ADMINBOUNDARIES:canada_admin_boundaries",
+                            "featureids": "canada_admin_boundaries.5",
+                            "mosaic": "False"
+                        },
+                        "linked_inputs": {
+                            "resource": {
+                                "task": "SubsetterGroup"
+                            }
+                        },
+                        "progress_range": [40, 100]
+                    }
+                ]
+            }
         ]
     }
+
+
 
 """
 
 import argparse
-from multiprocessing import Manager
-
 import jsonschema
 from dispel4py.new import multi_process
 from dispel4py.workflow_graph import WorkflowGraph
@@ -265,10 +256,10 @@ def run(workflow, monitor=None, headers=None):
     if 'parallel_groups' in workflow:
         for group in workflow['parallel_groups']:
             map_pe = MapPE(name=group['name'],
-                           input=group['map'],
+                           map_input=group['map'],
                            monitor=monitor)
             reduce_pe = ReducePE(name=group['name'],
-                                 input=group['reduce'],
+                                 reduce_input=group['reduce'],
                                  monitor=monitor)
             tasks.extend([map_pe, reduce_pe])
             for task in group['tasks']:

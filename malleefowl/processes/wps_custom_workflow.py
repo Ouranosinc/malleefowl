@@ -7,7 +7,7 @@ from pywps import ComplexInput
 from pywps import ComplexOutput
 from pywps import Format
 from pywps.app.Common import Metadata
-from multiprocessing import Manager, Value
+from multiprocessing import Manager
 
 from malleefowl.custom_workflow import run
 from malleefowl.utils import Monitor
@@ -18,6 +18,9 @@ logger = logging.getLogger("PYWPS")
 
 
 class DispelCustomWorkflow(Process, Monitor):
+    """
+    Implement a PyWPS process for executing custom workflow
+    """
     def __init__(self):
         inputs = [
             ComplexInput('workflow', 'Workflow description',
@@ -61,6 +64,12 @@ class DispelCustomWorkflow(Process, Monitor):
         self.result_summary = synch.dict()
 
     def _handler(self, request, response):
+        """
+        Implement the PyWPS process handler
+        :param request:
+        :param response:
+        :return:
+        """
         # Reset and preparation
         del self.full_log[:]
         del self.exceptions_list[:]
@@ -96,6 +105,7 @@ class DispelCustomWorkflow(Process, Monitor):
                                             separators=(',', ': '),
                                             sort_keys=True))
         except Exception as e:
+            formatted_summary = None
             self.raise_exception(e)
 
         # Handle exceptions (if any)
@@ -122,6 +132,9 @@ class DispelCustomWorkflow(Process, Monitor):
         return response
 
     def update_status(self, message, progress=None):
+        """
+        Implement malleefowl.utils.Monitor.update_status function. See Monitor.update_status for details
+        """
         if not progress:
             progress = self.overall_progress['progress']
         else:
@@ -138,9 +151,15 @@ class DispelCustomWorkflow(Process, Monitor):
         self.full_log.append(log)
 
     def raise_exception(self, exception):
+        """
+        Implement malleefowl.utils.Monitor.raise_exception function. See Monitor.raise_exception for details
+        """
         self.exceptions_list.append(traceback.format_exc())
 
     def save_task_result(self, task, result):
+        """
+        Implement malleefowl.utils.Monitor.save_task_result function. See Monitor.save_task_result for details
+        """
         if task in self.result_summary:
             task_result = self.result_summary[task]
             task_result['processes'].append(result)
@@ -151,7 +170,9 @@ class DispelCustomWorkflow(Process, Monitor):
                                                    processes=[result, ])})
 
     def _format_summary(self):
+        """
+        Format the summary for a better looking
+        """
         ordered_task = sorted(self.result_summary.items(), key=lambda x: x[1]['execution_order'])
 
         return [{task[0]: sorted(task[1]['processes'], key=lambda x: x.get('data_id', 0))} for task in ordered_task]
-        return ordered_summary
