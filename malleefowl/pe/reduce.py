@@ -13,25 +13,37 @@ from malleefowl.pe.generic_wps import ParallelGenericWPS
 
 
 class ReducePE(TaskPE):
+    """
+    Represent the reduce part of a parallel group of a workflow
+    The task must accumulate all the data coming from upstream PEs and send the resulting array to the next PE
+    """
+
+    # Name of the PE input/output
     REDUCE_INPUT = 'reduce_in'
     REDUCE_OUTPUT = 'reduce_out'
 
-    def __init__(self, name, input, monitor):
+    def __init__(self, name, reduce_input, monitor):
         TaskPE.__init__(self, name, monitor)
 
         # global will tell dispel4py to send all upstream nodes data to a single instance of ReducePE
         self._add_input(self.REDUCE_INPUT, grouping='global')
         self._add_output(self.REDUCE_OUTPUT)
-        self._add_linked_input(self.REDUCE_INPUT, input)
+        self._add_linked_input(self.REDUCE_INPUT, reduce_input)
         self.output = auto_list(list(), default_val=None)
         self.input_desc = None
 
     def get_input_desc(self, input_name):
+        """
+        Implement TaskPE fct. See TaskPE.get_input_desc for details.
+        """
         if input_name == self.REDUCE_INPUT:
             return self.input_desc
         return None
 
     def get_output_desc(self, output_name):
+        """
+        Implement TaskPE fct. See TaskPE.get_output_desc for details.
+        """
         if output_name == self.REDUCE_OUTPUT:
             return Output(ComplexOutput(self.REDUCE_OUTPUT,
                                         self.REDUCE_OUTPUT,
@@ -40,6 +52,11 @@ class ReducePE(TaskPE):
         return None
 
     def connected_to(self, task_input, upstream_task, upstream_task_output):
+        """
+        Override TaskPE fct. See TaskPE.connected_to for details.
+        The ReducePE uses the upstream task output format to set it's own input format and it's set upon connection
+        """
+
         # Set the supported input description which is the same as the upstream task supported output
         up_task_out_desc = upstream_task.get_output_desc(upstream_task_output)
         params = dict(identifier=self.REDUCE_INPUT,
@@ -59,11 +76,21 @@ class ReducePE(TaskPE):
             self.input_desc = Input(LiteralInput(**params).describe_xml())
 
     def _process(self, inputs):
+        """
+        Implement the GenericPE _process function.
+        Each input are put into an ordered array to be send in the _postprocess function
+        :param inputs: What has been outputted by the previous task
+        :return: None because all the inputs need to be accumulated
+        """
         for key, value in self._read_inputs(inputs):
             index = self.data_headers[DataWrapper.HEADERS_MAP_INDEX]
             self.output[index] = value
 
     def _postprocess(self):
+        """
+        Implement the GenericPE _postprocess function.
+        Send the accumulated array as output
+        """
         self._check_inputs()
 
         # Map index is no more relevant: remove it from the data headers
@@ -76,9 +103,16 @@ class ReducePE(TaskPE):
         self._send_outputs({self.REDUCE_OUTPUT: output})
 
     def _get_default_output(self):
+        """
+        Implement TaskPE fct.
+        The reduce task has only one output so set it as the default one.
+        """
         return self.REDUCE_OUTPUT
 
     def _can_connect(self, linked_input, downstream_task, downstream_task_input):
+        """
+        Implement TaskPE fct. See TaskPE._can_connect for details.
+        """
         # Reduce can only connect to downstream tasks which are not an instance of ParallelGenericWPS
         return not isinstance(downstream_task, ParallelGenericWPS)
 

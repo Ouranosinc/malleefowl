@@ -36,6 +36,11 @@ class ProxyPE(GenericPE):
 
 
 class TaskPE(GenericPE):
+    """
+    Represent a workflow task executed into a Dispel4Py graph as a GenericPE
+    """
+
+    # Headers property that travel along the data in the graph
     HEADERS_TASK_NAME = 'task_name'
 
     def __init__(self, name, monitor):
@@ -49,6 +54,12 @@ class TaskPE(GenericPE):
         self._monitor = monitor
 
     def monitor(self, message, progress=None, task_name=None):
+        """
+        Monitoring function to signal progress or status changes
+        :param message: message to set into PyWPS
+        :param progress: new progress
+        :param task_name: current task name (could be decorated when the same task is executed concurrently)
+        """
         if self._monitor:
             self._monitor.update_status("{name}: {msg}".format(name=task_name or self.name,
                                                                msg=message),
@@ -60,12 +71,18 @@ class TaskPE(GenericPE):
                         message)
 
     def save_result(self, result):
+        """
+        Must be called when the task ends to persist the result
+        :param result: Task result
+        """
         self._monitor.save_task_result(self.name, result)
 
     def process(self, inputs):
         """
-        Little wrapper over the process function to make sure that no exception is raise above this point
+        Override the GenericPE process function to make sure that no exception is raise above this point
         Because tasks are run on their own process an exception will be lost and others process will wait forever
+        :param inputs: What has been outputted by the previous task
+        :return: Output to send to the downstream task (None if not done with the task and requires post process)
         """
         try:
             return self._process(inputs)
@@ -77,8 +94,9 @@ class TaskPE(GenericPE):
 
     def postprocess(self):
         """
-        Little wrapper over the postprocess function to make sure that no exception is raise above this point
+        Override the GenericPE postprocess function to make sure that no exception is raise above this point
         Because tasks are run on their own process an exception will be lost and others process will wait forever
+        :return: Output to send to the downstream task
         """
         try:
             return self._postprocess()
@@ -89,15 +107,40 @@ class TaskPE(GenericPE):
         return None
 
     def get_input_desc(self, input_name):
+        """
+        Must describe the input input_name as a owslib.wps.Input
+        :param input_name: One of the WPS input identifier
+        :return: An owslib.wps.Input object
+        """
         raise NotImplementedError
 
     def get_output_desc(self, output_name):
+        """
+        Must describe the output output_name as a owslib.wps.Output
+        :param output_name: One of the WPS output identifier
+        :return: An owslib.wps.Output object
+        """
         raise NotImplementedError
 
     def connected_to(self, task_input, upstream_task, upstream_task_output):
+        """
+        This function is called when the current task is connected to an upstream_task
+        :param task_input: The input identifier which is connected
+        :param upstream_task: The upstream task TaskPE instance
+        :param upstream_task_output: The upstream task connected output identifier
+        :return: Nothing
+        """
         pass
 
     def try_connect(self, graph, linked_input, downstream_task, downstream_task_input):
+        """
+        Try to connect the current task to the downstream task
+        :param graph: The graph used to make the connection if possible
+        :param linked_input: linked_input dictionary provide by the workflow
+        :param downstream_task: The downstream task TaskPE instance
+        :param downstream_task_input: The downstream task input identifier
+        :return: True or False either if the connection succeeded
+        """
         # If self is not the required task return False
         if self.name != linked_input['task']:
             return False
@@ -152,22 +195,50 @@ class TaskPE(GenericPE):
                      downin=to_connection))
 
     def _get_default_output(self):
+        """
+        Get a default output identifier for the current task
+        :return: The default output or None if an output must be explicitly specified
+        """
         return None
 
     def _can_connect(self, linked_input, downstream_task, downstream_task_input):
+        """
+        This function is called to know if the current task can be connected to the given downstream task
+        :param linked_input: linked_input dictionary provide by the workflow
+        :param downstream_task: The downstream task TaskPE instance
+        :param downstream_task_input: The downstream task input identifier
+        :return: True or False either if the connection is possible
+        """
         task_output = linked_input.get('output', self._get_default_output())
         return self.get_output_desc(task_output) is not None
 
     def _add_linked_input(self, name, linked_input):
+        """
+        Explicitely declare inputs that can be connected to upstream task
+        :param name: Input identifier
+        :param linked_input: linked_input dictionary provide by the workflow
+        """
         self.linked_inputs.append((name, linked_input))
 
     def _send_outputs(self, outputs, extra_headers=None):
+        """
+        Send the given outputs to the downstream PE in the dispel4py graph and
+        make sure to add the proper headers that must travel along the data
+        :param outputs: The outputs that will be send
+        :param extra_headers: Additional headers to send with the data
+        """
         if outputs:
+            # Copy the current headers value
             data_headers = copy.deepcopy(self.data_headers)
+
+            # Adn add extra headers
             if extra_headers:
                 data_headers.update(extra_headers)
+
+            # Make sure that the headers include the upstream task name
             data_headers[TaskPE.HEADERS_TASK_NAME] = self.name
 
+            # Send all the outputs
             for key, value in outputs.items():
                 self.monitor('{name} is sending value - [{headers}] {key}:{val}'.format(name=self.name,
                                                                                         headers=data_headers,
@@ -177,7 +248,10 @@ class TaskPE(GenericPE):
 
     def _read_inputs(self, inputs):
         """
-        Take the inputs coming from the dispel4py upstream PE and assign them to the current task inputs
+        Read the inputs coming from the dispel4py upstream PE and assign them to the current task inputs
+        Extract also the headers traveling along the data
+        :param inputs: inputs coming from dispel4py upstream PE
+        :return: Yield each input read into the expected format
         """
         valid_inputs = [_input[0] for _input in self.linked_inputs]
 
@@ -186,7 +260,8 @@ class TaskPE(GenericPE):
                 # Accumulate in data headers all headers received, so we can send them once finished
                 self.data_headers.update(inputs[key].headers)
 
-                linked_input_tasks = {x[1]['task']:x[1] for x in self.linked_inputs if x[0] == key}
+                # Get the task name from which the data is coming
+                linked_input_tasks = {x[1]['task']: x[1] for x in self.linked_inputs if x[0] == key}
                 data_task = inputs[key].headers[TaskPE.HEADERS_TASK_NAME]
 
                 # Now we try to do most of the conversion job between these two data types with the knowledge we have

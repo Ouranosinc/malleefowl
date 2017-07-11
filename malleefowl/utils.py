@@ -5,6 +5,7 @@ Utility functions for WPS processes.
 import json
 from netCDF4 import Dataset
 import os
+import copy
 
 from malleefowl import config
 
@@ -218,6 +219,9 @@ def nc_copy(source, target, overwrite=True, time_dimname='time', nchunk=10, ista
 
 
 class auto_list:
+    """
+    Implement a list that auto expand when the index exceed the current size of the list
+    """
     def __init__(self, list_inst, default_val=0):
         self.list = list_inst
         self.default_val = default_val
@@ -240,27 +244,53 @@ class auto_list:
 
 
 class DataWrapper:
+    """
+    Data wrapper use to move data in the dispel4py graph including headers along with the data
+    """
+
+    # This is the header specifying the mapping index of a data when travelling inside a parallel group
     HEADERS_MAP_INDEX = 'map_index'
 
-    def __init__(self, payload=None, headers={}):
+    def __init__(self, payload=None, headers=None):
         self.payload = payload
-        self.headers = headers
+        self.headers = headers or {}
 
-import copy
 
 class Monitor:
+    """
+    Base class for task monitoring providing specific function to implement
+    """
     def __init__(self):
         pass
 
-    # The progress list must be shared by every worker using this monitor
     def __deepcopy__(self, memo):
+        """
+        The original monitor instance must be preserved even when the owner is deep copied
+        """
         return copy.copy(self)
 
     def update_status(self, message, progress=None):
+        """
+        Update the PyWPS status
+        :param message: New message
+        :param progress: New progress
+        :return: None
+        """
         pass
 
     def raise_exception(self, exception):
+        """
+        To be called when aan exception occurs in a task
+        Because tasks are run in processes this function will allow a monitor implementation to gather every exceptions
+        that will not be catched otherwise
+        :param exception: The exception
+        """
         pass
 
     def save_task_result(self, task, result):
+        """
+        Allow to save the result of a task
+        :param task: The task name
+        :param result: It's result
+        """
         pass

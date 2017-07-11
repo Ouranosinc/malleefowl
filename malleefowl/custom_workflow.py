@@ -1,74 +1,65 @@
 """
 Run custom workflow without prior knowledge of the underlying component except the fact that they are WPS
-The workflow must have the following structure:
-
-Dict of 2 elements :
-
-* name : Workflow name
-* tasks : Array of workflow task, each describe by a dict :
-
-  * name : Unique name given to each workflow task
-  * url : Url of the WPS provider
-  * identifier : Identifier of a WPS process
-  * inputs : Array of static input required by the WPS process, each describe by a 2 elements array :
-
-    * Name of the input
-    * Value of the input
-
-  * linked_inputs : Array of dynamic input required by the WPS process and obtained by the output of other tasks,
-                    each describe by a 2 elements array :
-
-    * Name of the input
-    * Provenance of the input, describe by a dict :
-
-      * task : Name of the task from which this input must come from
-      * output : Name of the task output that will be linked
-      * as_reference : Specify the required form of the input(1) [True: Expect an URL to the input,
-                                                                 False: Expect the data directly]
-
-  * progress_range : 2 elements array defining the overall progress range of this task :
-
-    * Start
-    * End
-
-(1) The workflow executor is able obviously to assign a reference output to an expected reference input and
-a data output to an expected data input but will also be able to read the value of a reference output to send the
-expected data input. However, a data output linked to an expected reference input will yield to an exception.
+The workflow must respect the schema described by "workflow_schema"
 
 Example:
 
 .. code-block:: json
 
     {
-        "name": "Subsetting workflow",
+        "name": "workflow_demo_1",
         "tasks": [
             {
                 "name": "Downloading",
                 "url": "http://localhost:8091/wps",
                 "identifier": "thredds_download",
-                "inputs": [["url", "http://localhost:8083/thredds/catalog/birdhouse/catalog.xml"]],
-                "progress_range": [0, 50]
-            },
+                "inputs": {
+                    "url": "http://localhost:8083/thredds/catalog/birdhouse/catalog.xml"
+                },
+                "progress_range": [0, 40]
+            }
+        ],
+        "parallel_groups": [
             {
-                "name": "Subsetting",
-                "url": "http://localhost:8093/wps",
-                "identifier": "subset_WFS",
-                "inputs": [["typename", "ADMINBOUNDARIES:canada_admin_boundaries"],
-                           ["featureids", "canada_admin_boundaries.5"],
-                           ["mosaic", "False"]],
-                "linked_inputs": [["resource", { "task": "Downloading",
-                                                 "output": "output",
-                                                 "as_reference": False}],],
-                "progress_range": [50, 100]
-            },
+                "name": "SubsetterGroup",
+                "max_processes": 2,
+                "map": {
+                    "task": "Downloading",
+                    "output": "output",
+                    "as_reference": false
+                },
+                "reduce": {
+                    "task": "Subsetting",
+                    "output": "ncout",
+                    "as_reference": true
+                },
+                "tasks": [
+                    {
+                        "name": "Subsetting",
+                        "url": "http://localhost:8093/wps",
+                        "identifier": "subset_WFS",
+                        "inputs": {
+                            "typename": "ADMINBOUNDARIES:canada_admin_boundaries",
+                            "featureids": "canada_admin_boundaries.5",
+                            "mosaic": "False"
+                        },
+                        "linked_inputs": {
+                            "resource": {
+                                "task": "SubsetterGroup"
+                            }
+                        },
+                        "progress_range": [40, 100]
+                    }
+                ]
+            }
         ]
     }
+
+
 
 """
 
 import argparse
-from multiprocessing import Manager
-
 import jsonschema
 from dispel4py.new import multi_process
 from dispel4py.workflow_graph import WorkflowGraph
@@ -80,139 +71,7 @@ from malleefowl.pe.generic_wps import GenericWPS, ParallelGenericWPS
 # If the xml document is unavailable after 5 attempts consider that the process has failed
 XML_DOC_READING_MAX_ATTEMPT = 5
 
-
-input_description_schema = {
-    "description": "Description of an input source",
-    "type": "object",
-    "required": ["task"],
-    "additionalProperties": False,
-    "properties": {
-        "task": {
-            "description": "Task name",
-            "type": "string"
-        },
-        "output": {
-            "description": "Task output name",
-            "type": "string"
-        },
-        "as_reference": {
-            "description": "Specify if the task output should be obtained as a reference or not",
-            "type": "boolean"
-        }
-    }
-}
-
-workflow_task_schema = {
-    "description": "Describe a WPS process task",
-    "type": "object",
-    "required": ["name", "url", "identifier"],
-    "additionalProperties": False,
-    "properties": {
-        "name": {
-            "description": "Unique name given to each workflow task",
-            "type": "string"
-        },
-        "url": {
-            "description": "Url of the WPS provider",
-            "type": "string"
-        },
-        "identifier": {
-            "description": "Identifier of a WPS process",
-            "type": "string"
-        },
-        "inputs": {
-            "description": "Dictionary of inputs that must be fed to the WPS process",
-            "type": "object",
-            "minItems": 1,
-            "patternProperties": {
-                ".*": {
-                    "oneOf": [
-                        {
-                            "description": "Data that must be fed to this input",
-                            "type": "string"
-                        },
-                        {
-                            "description": "Array of data that must be fed to this input",
-                            "type": "array",
-                            "minItems": 1,
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    ]
-                }
-            }
-        },
-        "linked_inputs": {
-            "description": "Dictionary of dynamic inputs that must be fed to the WPS process and obtained by the output of other tasks",
-            "type": "object",
-            "minItems": 1,
-            "patternProperties": {
-                ".*": {
-                    "oneOf": [
-                        input_description_schema,
-                        {
-                            "description": "Array of input description that must be fed to this input",
-                            "type": "array",
-                            "minItems": 1,
-                            "items": input_description_schema
-                        }
-                    ]
-                }
-            }
-        },
-        "progress_range": {
-            "description": "Progress range to map the whole progress of this task",
-            "type": "array",
-            "minItems": 2,
-            "maxItems": 2,
-            "items": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 100
-            }
-        }
-    }
-}
-
-group_of_task_schema = {
-    "type": "object",
-    "description": "Describe a group of tasks to be run concurrently",
-    "required": ["name", "max_processes", "map", "reduce", "tasks"],
-    "additionalProperties": False,
-    "properties": {
-        "name": {
-            "description": "Group of task name",
-            "type": "string"
-        },
-        "max_processes": {
-            "description": "Number of processes to run concurrently to process the data",
-            "type": "number",
-            "minimum": 1
-        },
-        "map": {
-            "oneOf": [
-                input_description_schema,
-                {
-                    "description": "Array of data that has to be mapped directly",
-                    "type": "array",
-                    "minItems": 1,
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            ]
-        },
-        "reduce": input_description_schema,
-        "tasks": {
-            "description": "Array of workflow task to run concurrently inside the group",
-            "type": "array",
-            "minItems": 1,
-            "items": workflow_task_schema
-        }
-    }
-}
-
+# The schema that must be respected by the submitted workflow
 workflow_schema = {
     "$schema": "http://json-schema.org/draft-04/schema#",
     "title": "Workflow",
@@ -230,13 +89,144 @@ workflow_schema = {
             "description": "Array of workflow task",
             "type": "array",
             "minItems": 1,
-            "items": workflow_task_schema
+            "items": { "$ref": "#/definitions/workflow_task_schema" }
         },
         "parallel_groups": {
             "description": "Array of group of tasks being executed on multiple processes",
             "type": "array",
             "minItems": 1,
-            "items": group_of_task_schema
+            "items": { "$ref": "#/definitions/group_of_task_schema" }
+        }
+    },
+    "definitions": {
+        "workflow_task_schema": {
+            "description": "Describe a WPS process task",
+            "type": "object",
+            "required": ["name", "url", "identifier"],
+            "additionalProperties": False,
+            "properties": {
+                "name": {
+                    "description": "Unique name given to each workflow task",
+                    "type": "string"
+                },
+                "url": {
+                    "description": "Url of the WPS provider",
+                    "type": "string"
+                },
+                "identifier": {
+                    "description": "Identifier of a WPS process",
+                    "type": "string"
+                },
+                "inputs": {
+                    "description": "Dictionary of inputs that must be fed to the WPS process",
+                    "type": "object",
+                    "minItems": 1,
+                    "patternProperties": {
+                        ".*": {
+                            "oneOf": [
+                                {
+                                    "description": "Data that must be fed to this input",
+                                    "type": "string"
+                                },
+                                {
+                                    "description": "Array of data that must be fed to this input",
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                },
+                "linked_inputs": {
+                    "description": "Dictionary of dynamic inputs that must be fed to the WPS process and obtained by the output of other tasks",
+                    "type": "object",
+                    "minItems": 1,
+                    "patternProperties": {
+                        ".*": {
+                            "oneOf": [
+                                { "$ref": "#/definitions/input_description_schema" },
+                                {
+                                    "description": "Array of input description that must be fed to this input",
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "items": { "$ref": "#/definitions/input_description_schema" }
+                                }
+                            ]
+                        }
+                    }
+                },
+                "progress_range": {
+                    "description": "Progress range to map the whole progress of this task",
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100
+                    }
+                }
+            }
+        },
+        "group_of_task_schema" : {
+            "type": "object",
+            "description": "Describe a group of tasks to be run concurrently",
+            "required": ["name", "max_processes", "map", "reduce", "tasks"],
+            "additionalProperties": False,
+            "properties": {
+                "name": {
+                    "description": "Group of task name",
+                    "type": "string"
+                },
+                "max_processes": {
+                    "description": "Number of processes to run concurrently to process the data",
+                    "type": "number",
+                    "minimum": 1
+                },
+                "map": {
+                    "oneOf": [
+                        { "$ref": "#/definitions/input_description_schema" },
+                        {
+                            "description": "Array of data that has to be mapped directly",
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    ]
+                },
+                "reduce": { "$ref": "#/definitions/input_description_schema" },
+                "tasks": {
+                    "description": "Array of workflow task to run concurrently inside the group",
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/definitions/workflow_task_schema" }
+                }
+            }
+        },
+        "input_description_schema" : {
+            "description": "Description of an input source",
+            "type": "object",
+            "required": ["task"],
+            "additionalProperties": False,
+            "properties": {
+                "task": {
+                    "description": "Task name",
+                    "type": "string"
+                },
+                "output": {
+                    "description": "Task output name",
+                    "type": "string"
+                },
+                "as_reference": {
+                    "description": "Specify if the task output should be obtained as a reference or not",
+                    "type": "boolean"
+                }
+            }
         }
     }
 }
@@ -266,10 +256,10 @@ def run(workflow, monitor=None, headers=None):
     if 'parallel_groups' in workflow:
         for group in workflow['parallel_groups']:
             map_pe = MapPE(name=group['name'],
-                           input=group['map'],
+                           map_input=group['map'],
                            monitor=monitor)
             reduce_pe = ReducePE(name=group['name'],
-                                 input=group['reduce'],
+                                 reduce_input=group['reduce'],
                                  monitor=monitor)
             tasks.extend([map_pe, reduce_pe])
             for task in group['tasks']:

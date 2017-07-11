@@ -4,7 +4,7 @@ from time import sleep
 
 from owslib.wps import WebProcessingService
 # For check_status function
-from owslib.wps import WPSExecuteReader, ComplexData
+from owslib.wps import WPSExecuteReader
 from owslib.etree import etree
 
 from malleefowl.pe.progress_monitor import ProgressMonitorPE, RangeProgress, RangeGroupProgress
@@ -81,6 +81,10 @@ class GenericWPS(ProgressMonitorPE):
             self._add_linked_input(_input[0], _input[1])
 
     def try_connect(self, graph, linked_input, downstream_task, downstream_task_input):
+        """
+        Override TaskPE fct. See TaskPE.try_connect for details.
+        Add the WPS outputs upon connection
+        """
         if ProgressMonitorPE.try_connect(self, graph, linked_input, downstream_task, downstream_task_input):
             # Here we added the WPS output name and its as_reference request
             self.outputs.append((linked_input.get('output', self._get_default_output()),
@@ -90,18 +94,22 @@ class GenericWPS(ProgressMonitorPE):
 
     def _process(self, inputs):
         """
-        Callback of dispel4py when this PE receive an input
+        Implement the GenericPE _process function.
         This function is called multiple time if more than one input must be set
-        :param inputs: One of the linked input
+        :param inputs: What has been outputted by the previous task
+        :return: None because the WPS execute function will only be called in _postprocess fct
         """
+
         # Assign the input internally and wait for all inputs before launching the wps execution
         for key, value in self._read_inputs(inputs):
             self.dynamic_inputs.append((key, value))
 
     def _postprocess(self):
         """
-        Callback of dispel4py when this PE has receive all its inputs and thus are ready to execute the wps
+        Implement the GenericPE _postprocess function.
+        Call when this PE has received all its inputs and thus are ready to execute the wps
         """
+
         try:
             self._check_inputs()
             self._send_outputs(self._execute())
@@ -110,22 +118,37 @@ class GenericWPS(ProgressMonitorPE):
             raise
 
     def _connect(self, from_connection, to_node, to_connection, graph):
+        """
+        Override TaskPE fct. See TaskPE._connect for details.
+        We add the PE output just before completing the connection in the graph
+        """
+
         # Here we add a PE output that is required before completing the actual connection
         self._add_output(from_connection)
         ProgressMonitorPE._connect(self, from_connection, to_node, to_connection, graph)
 
     def _get_default_output(self):
+        """
+        Implement TaskPE fct.
+        If the WPS has only one output it can be set as the default one. Else it has to be set.
+        """
         if len(self.proc_desc.processOutputs) == 1:
             return self.proc_desc.processOutputs[0].identifier
         return None
 
     def get_input_desc(self, input_name):
+        """
+        Implement TaskPE fct. See TaskPE.get_input_desc for details.
+        """
         for wps_input in self.proc_desc.dataInputs:
             if wps_input.identifier == input_name:
                 return wps_input
         return None
 
     def get_output_desc(self, output_name):
+        """
+        Implement TaskPE fct. See TaskPE.get_output_desc for details.
+        """
         for wps_output in self.proc_desc.processOutputs:
             if wps_output.identifier == output_name:
                 return wps_output
@@ -182,7 +205,7 @@ class GenericWPS(ProgressMonitorPE):
                 verify=execution.verify,
                 headers=execution.headers)
             response = etree.tostring(response)
-        except Exception as e:
+        except Exception:
             raise
         else:
             execution.checkStatus(response=response, sleepSecs=3)
@@ -244,6 +267,11 @@ class GenericWPS(ProgressMonitorPE):
                     format(ex) for ex in execution.errors]), progress)
 
     def get_output_datatype(self, output):
+        """
+        Extract the correct datatype from the datatype structure
+        :param output: output as parsed from the wps xml status (ows.wps.Output)
+        :return: The datatype of the output as a string (ComplexData, string, etc.)
+        """
         # outputs from execution structure do not always carry the dataType
         # so find it from the process description
         if not output.dataType:
@@ -330,6 +358,12 @@ class GenericWPS(ProgressMonitorPE):
 
     @staticmethod
     def iter_inputs(inputs):
+        """
+        Convert dictionary of inputs where the value is either an array or a value to a flat array of tuple (key, value)
+        :param inputs: Dictionnary of inputs looking like this {key1: val1, key2: val2, key3: [val3.1, val3.2, val3.3]}
+        :return: yield a tuple for each key/value pair looking like this
+                 [(key1, val1), (key2, val2), (key3, val3.1), (key3, val3.2), (key3, val3.3)]
+        """
         if not inputs:
             return
         for key in inputs:
@@ -348,6 +382,7 @@ class ParallelGenericWPS(GenericWPS):
         """
         :param group: Parallel group name
         :param max_processes: Maximum number of instances running concurrently
+        :param progress_range: Progress range of this task
         :param kwargs: GenericWPS arguments passed as is
         """
         GenericWPS.__init__(self, **kwargs)
@@ -360,27 +395,37 @@ class ParallelGenericWPS(GenericWPS):
         self.numprocesses = max_processes
         self.set_progress_provider(RangeGroupProgress(group_map_pe, progress_range[0], progress_range[1]))
 
-    def process(self, inputs):
+    def _process(self, inputs):
         """
+        Implement the GenericPE _process function.
+
         ParallelGenericWPS do not support more than one linked inputs because their process function will be called
         multiple times but for different mapped jobs. Trying to match 2 linked inputs part of the same job could prove
         to be a headache.
         Since each job only have one input we can launch the wps execution on each process call.
+
+        :param inputs: What has been outputted by the previous task
+        :return: None because the outputs are written within the function
         """
 
         # Assign inputs
-        GenericWPS.process(self, inputs)
+        GenericWPS._process(self, inputs)
 
         # Launch the wps execution
-        GenericWPS.postprocess(self)
+        GenericWPS._postprocess(self)
 
-    def postprocess(self):
+    def _postprocess(self):
         """
-        Override the GenericWPS postprocess function because ParallelGenericWPS execution happens at each process call
+        Override the GenericWPS postprocess function to nothing because
+        ParallelGenericWPS execution happens at each process call
         """
         return None
 
     def monitor(self, message, progress=None, task_name=None):
+        """
+        Override TaskPE monitor function. See TaskPE.monitor for details.
+        Add the process and data id to the task name.
+        """
         if not task_name:
             map_idx = self._get_map_idx()
             task_name = '{name}-proc{proc}-data{data}'.format(name=self.name,
@@ -389,12 +434,19 @@ class ParallelGenericWPS(GenericWPS):
         GenericWPS.monitor(self, message, progress=progress, task_name=task_name)
 
     def save_result(self, result):
+        """
+        Override TaskPE save_result function. See TaskPE.save_result for details.
+        Add the process and data id to the result dictionary.
+        """
         map_idx = self._get_map_idx()
         result.update(dict(data_id=map_idx,
                            process_id=self.rank))
         GenericWPS.save_result(self, result)
 
     def _get_map_idx(self):
+        """
+        Returns the map index from the headers for the current data being processed
+        """
         try:
             return self.data_headers[DataWrapper.HEADERS_MAP_INDEX]
         except KeyError:
