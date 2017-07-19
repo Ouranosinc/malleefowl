@@ -3,7 +3,7 @@ from owslib.wps import ComplexDataInput
 from owslib.wps import BoundingBoxDataInput
 
 from dispel4py.workflow_graph import WorkflowGraph
-from dispel4py import simple_process
+from dispel4py.new import simple_process
 from dispel4py.base import BasePE
 
 from malleefowl.config import wps_url
@@ -299,10 +299,10 @@ def esgf_workflow(source, worker, monitor=None, headers=None):
                   download, download.INPUT_NAME)
     graph.connect(download, download.OUTPUT_NAME, doit, doit.INPUT_NAME)
 
-    result = simple_process.process(graph, inputs={esgsearch: [{}]})
+    result = simple_process.process_and_return(graph, inputs={esgsearch: [{}]})
 
-    status_location = result.get((doit.id, doit.STATUS_LOCATION_NAME))[0]
-    status = result.get((doit.id, doit.STATUS_NAME))[0]
+    status_location = result[doit.id][doit.STATUS_LOCATION_NAME][0]
+    status = result[doit.id][doit.STATUS_NAME][0]
     return dict(worker=dict(status_location=status_location, status=status))
 
 
@@ -316,10 +316,10 @@ def thredds_workflow(source, worker, monitor=None):
 
     graph.connect(download, download.OUTPUT_NAME, doit, doit.INPUT_NAME)
 
-    result = simple_process.process(graph, inputs={download: [{}]})
+    result = simple_process.process_and_return(graph, inputs={download: [{}]})
 
-    status_location = result.get((doit.id, doit.STATUS_LOCATION_NAME))[0]
-    status = result.get((doit.id, doit.STATUS_NAME))[0]
+    status_location = result[doit.id][doit.STATUS_LOCATION_NAME][0]
+    status = result[doit.id][doit.STATUS_NAME][0]
     return dict(worker=dict(status_location=status_location, status=status))
 
 
@@ -340,10 +340,10 @@ def solr_workflow(source, worker, monitor=None):
                   download, download.INPUT_NAME)
     graph.connect(download, download.OUTPUT_NAME, doit, doit.INPUT_NAME)
 
-    result = simple_process.process(graph, inputs={solrsearch: [{}]})
+    result = simple_process.process_and_return(graph, inputs={solrsearch: [{}]})
 
-    status_location = result.get((doit.id, doit.STATUS_LOCATION_NAME))[0]
-    status = result.get((doit.id, doit.STATUS_NAME))[0]
+    status_location = result[doit.id][doit.STATUS_LOCATION_NAME][0]
+    status = result[doit.id][doit.STATUS_NAME][0]
     return dict(worker=dict(status_location=status_location, status=status))
 
 
