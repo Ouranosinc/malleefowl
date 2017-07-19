@@ -21,8 +21,13 @@ class ProgressList:
     def __init__(self):
         self.list = auto_list(Manager().list(), default_val=0)
 
-    # The progress list must be shared by every worker using this monitor, so avoid deep copy
     def __deepcopy__(self, memo):
+        """
+        PEs are deep copied by dispel4py while building graph but we want them to share the original ProgressList
+        instance and not their own copy. So each time a deep copy of the ProgressList is requested we simply return a
+        reference (what is achieved by the copy.copy fct). So every deep copy of the PE will use the same ProgressList
+        instance
+        """
         return copy.copy(self)
 
 
