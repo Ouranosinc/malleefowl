@@ -77,6 +77,13 @@ class TaskPE(GenericPE):
         """
         self._monitor.save_task_result(self.name, result)
 
+    def raise_exception(self, exception):
+        """
+        Must be called when the task has to raise an exception to the main process
+        :param exception: The exception to raise
+        """
+        self._monitor.raise_exception(exception)
+
     def process(self, inputs):
         """
         Override the GenericPE process function to make sure that no exception is raise above this point
@@ -89,7 +96,7 @@ class TaskPE(GenericPE):
         except Exception as e:
             # Augment the exception message but conserve the full exception stack
             e.args = ('Exception occurs in task "{0}" process : {1}'.format(self.name, str(e)),)
-            self._monitor.raise_exception(e)
+            self.raise_exception(e)
         return None
 
     def postprocess(self):
@@ -103,7 +110,7 @@ class TaskPE(GenericPE):
         except Exception as e:
             # Augment the exception message but conserve the full exception stack
             e.args = ('Exception occurs in task "{0}" process : {1}'.format(self.name, str(e)),)
-            self._monitor.raise_exception(e)
+            self.raise_exception(e)
         return None
 
     def get_input_desc(self, input_name):
