@@ -67,6 +67,8 @@ from dispel4py.workflow_graph import WorkflowGraph
 from malleefowl.pe.map import MapPE
 from malleefowl.pe.reduce import ReducePE
 from malleefowl.pe.generic_wps import GenericWPS, ParallelGenericWPS
+from malleefowl.exceptions import WorkflowException
+
 
 # If the xml document is unavailable after 5 attempts consider that the process has failed
 XML_DOC_READING_MAX_ATTEMPT = 5
@@ -244,7 +246,7 @@ def run(workflow, monitor=None, headers=None):
     try:
         jsonschema.validate(workflow, workflow_schema)
     except jsonschema.ValidationError as e:
-        raise Exception('The workflow is invalid : {0}'.format(str(e)))
+        raise WorkflowException('The workflow is invalid : {0}'.format(str(e)))
 
     # Create WPS processes and append them in a task array
     tasks = []
@@ -286,7 +288,7 @@ def run(workflow, monitor=None, headers=None):
 
             # Unfortunately the linked input has not been resolved, we must raise an exception for that
             if not found_linked_input:
-                raise Exception(
+                raise WorkflowException(
                     'Cannot build workflow graph : Task "{task}" has an unknown linked input : {input}'.format(
                         task=task.name,
                         input=str(linked_input[1])))

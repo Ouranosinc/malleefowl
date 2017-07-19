@@ -10,6 +10,7 @@ from owslib.wps import Output
 from malleefowl.utils import DataWrapper, auto_list
 from malleefowl.pe.task import TaskPE
 from malleefowl.pe.generic_wps import ParallelGenericWPS
+from malleefowl.exceptions import WorkflowException
 
 
 class ReducePE(TaskPE):
@@ -125,4 +126,4 @@ class ReducePE(TaskPE):
                 msg = 'Workflow cannot complete because of a missing input ' \
                       '(index {index}) in the reduce array of group {task}'.format(index=index,
                                                                                    task=self.name)
-                raise Exception(msg)
+                raise WorkflowException(msg)

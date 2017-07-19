@@ -9,6 +9,7 @@ from owslib.etree import etree
 
 from malleefowl.pe.progress_monitor import ProgressMonitorPE, RangeProgress, RangeGroupProgress
 from malleefowl.utils import DataWrapper
+from malleefowl.exceptions import WorkflowException
 
 import logging
 logger = logging.getLogger("PYWPS")
@@ -169,9 +170,9 @@ class GenericWPS(ProgressMonitorPE):
 
         for submitted_input in inputs + linked_inputs:
             if submitted_input[0] not in valid_inputs:
-                raise Exception("Invalid workflow : Input '{input}' of process '{proc}' is unknown.".format(
-                    input=submitted_input[0],
-                    proc=self.identifier))
+                raise WorkflowException("Invalid workflow : Input '{input}' of process '{proc}' is unknown.".format(
+                                        input=submitted_input[0],
+                                        proc=self.identifier))
 
     def _check_inputs(self):
         """
@@ -187,7 +188,7 @@ class GenericWPS(ProgressMonitorPE):
                 msg = "Workflow cannot complete because of a missing input '{input}' of task {task}".format(
                     input=linked_input[0],
                     task=self.name)
-                raise Exception(msg)
+                raise WorkflowException(msg)
 
     @staticmethod
     def _check_status(execution):
@@ -354,7 +355,7 @@ class GenericWPS(ProgressMonitorPE):
         else:
             failure_msg = '\n'.join(['{0.text}'.
                                     format(ex) for ex in execution.errors])
-            raise Exception(failure_msg)
+            raise WorkflowException(failure_msg)
 
     @staticmethod
     def iter_inputs(inputs):
@@ -459,7 +460,7 @@ class ParallelGenericWPS(GenericWPS):
         :param linked_inputs: dynamic inputs (value will be obtained from upstream task)
         """
         if len(linked_inputs) > 1:
-            raise Exception((
+            raise WorkflowException((
                 "Invalid workflow : Task '{task}' of parallel group '{group}' has {nbi} linked inputs but "
                 "parallel group tasks support at most one linked input").format(
                     task=self.name,
