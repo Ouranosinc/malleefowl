@@ -12,7 +12,7 @@ from multiprocessing import Manager
 
 from malleefowl.custom_workflow import run
 from malleefowl.utils import Monitor
-
+from malleefowl.exceptions import WorkflowException
 
 import logging
 logger = logging.getLogger("PYWPS")
@@ -128,7 +128,7 @@ class DispelCustomWorkflow(Process, Monitor):
                 log='\n'.join(self.full_log))
 
             # Augment the exception message by appending the full log but conserve the full exception stack
-            raise Exception(full_msg)
+            raise WorkflowException(full_msg)
 
         # Send result
         with open('logfile.txt', 'w') as fp:

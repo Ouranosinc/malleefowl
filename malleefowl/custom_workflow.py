@@ -1,6 +1,6 @@
 """
 Run custom workflow without prior knowledge of the underlying component except the fact that they are WPS
-The workflow must respect the schema described by "workflow_schema"
+The workflow must respect the schema described by "WORKFLOW_SCHEMA"
 
 Example:
 
@@ -67,12 +67,14 @@ from dispel4py.workflow_graph import WorkflowGraph
 from malleefowl.pe.map import MapPE
 from malleefowl.pe.reduce import ReducePE
 from malleefowl.pe.generic_wps import GenericWPS, ParallelGenericWPS
+from malleefowl.exceptions import WorkflowException
+
 
 # If the xml document is unavailable after 5 attempts consider that the process has failed
 XML_DOC_READING_MAX_ATTEMPT = 5
 
 # The schema that must be respected by the submitted workflow
-workflow_schema = {
+WORKFLOW_SCHEMA = {
     "$schema": "http://json-schema.org/draft-04/schema#",
     "title": "Workflow",
     "description": "Advanced workflow schema",
@@ -242,17 +244,19 @@ def run(workflow, monitor=None, headers=None):
     """
 
     try:
-        jsonschema.validate(workflow, workflow_schema)
+        jsonschema.validate(workflow, WORKFLOW_SCHEMA)
     except jsonschema.ValidationError as e:
-        raise Exception('The workflow is invalid : {0}'.format(str(e)))
+        raise WorkflowException('The workflow is invalid : {0}'.format(str(e)))
 
     # Create WPS processes and append them in a task array
     tasks = []
 
+    # Append tasks from the tasks section (but this section is not mandatory)
     if 'tasks' in workflow:
         for task in workflow['tasks']:
             tasks.append(GenericWPS(headers=headers, monitor=monitor, **task))
 
+    # Append tasks from each parallel group of the parallel_groups section (but this section is not mandatory)
     if 'parallel_groups' in workflow:
         for group in workflow['parallel_groups']:
             map_pe = MapPE(name=group['name'],
@@ -262,6 +266,8 @@ def run(workflow, monitor=None, headers=None):
                                  reduce_input=group['reduce'],
                                  monitor=monitor)
             tasks.extend([map_pe, reduce_pe])
+
+            # Append tasks for each parallel_group (this section is mandatory)
             for task in group['tasks']:
                 tasks.append(ParallelGenericWPS(group_map_pe=map_pe,
                                                 max_processes=group['max_processes'],
@@ -286,7 +292,7 @@ def run(workflow, monitor=None, headers=None):
 
             # Unfortunately the linked input has not been resolved, we must raise an exception for that
             if not found_linked_input:
-                raise Exception(
+                raise WorkflowException(
                     'Cannot build workflow graph : Task "{task}" has an unknown linked input : {input}'.format(
                         task=task.name,
                         input=str(linked_input[1])))

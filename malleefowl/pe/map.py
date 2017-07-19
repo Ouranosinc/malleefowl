@@ -11,6 +11,7 @@ from owslib.wps import Input, Output
 from malleefowl.utils import DataWrapper, auto_list
 from malleefowl.pe.task import TaskPE
 from malleefowl.pe.generic_wps import ParallelGenericWPS
+from malleefowl.exceptions import WorkflowException
 
 
 class ProgressList:
@@ -20,8 +21,13 @@ class ProgressList:
     def __init__(self):
         self.list = auto_list(Manager().list(), default_val=0)
 
-    # The progress list must be shared by every worker using this monitor, so avoid deep copy
     def __deepcopy__(self, memo):
+        """
+        PEs are deep copied by dispel4py while building graph but we want them to share the original ProgressList
+        instance and not their own copy. So each time a deep copy of the ProgressList is requested we simply return a
+        reference (what is achieved by the copy.copy fct). So every deep copy of the PE will use the same ProgressList
+        instance
+        """
         return copy.copy(self)
 
 
@@ -53,7 +59,7 @@ class MapPE(TaskPE):
         else:
             msg = ('Workflow cannot complete because the group {task} required as input either'
                    ' a task reference or an array of values').format(task=self.name)
-            raise Exception(msg)
+            raise WorkflowException(msg)
         self.output_desc = None
 
         # This is the progress list shared by each of our tasks in which they will set their progress
@@ -124,7 +130,7 @@ class MapPE(TaskPE):
                 else:
                     msg = ('Workflow cannot complete because the group {task} '
                            'has not receive a json array as input').format(task=self.name)
-                    raise Exception(msg)
+                    raise WorkflowException(msg)
 
     def _map_input_list(self, input_list):
         """
