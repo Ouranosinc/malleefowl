@@ -75,6 +75,9 @@ class GenericWPS(ProgressMonitorPE):
         # Will be filled as PE are connected to us (by the get_output function)
         self.outputs = []
 
+        # Hold the location of the wps status xml as soon as possible
+        self.status_location = None
+
         for _input in linked_inputs:
             # Here we add PE input that will need to be connected
             if _input[0] not in self.inputconnections:
@@ -92,6 +95,18 @@ class GenericWPS(ProgressMonitorPE):
                                  linked_input.get('as_reference', False)))
             return True
         return False
+
+    def raise_exception(self, exception):
+        """
+        Override TaskPE fct. See TaskPE.raise_exception for details.
+        Will also make sure that a failure result is saved for this task
+        """
+
+        result = {self.STATUS_NAME: 'ProcessFailed',
+                  self.STATUS_LOCATION_NAME: self.status_location or ''}
+        self.save_result(result)
+
+        self._monitor.raise_exception(exception)
 
     def _process(self, inputs):
         """
@@ -317,6 +332,8 @@ class GenericWPS(ProgressMonitorPE):
             inputs=self.static_inputs + self.dynamic_inputs,
             output=self.outputs,
             lineage=True)
+
+        self.status_location = execution.statusLocation
         self.set_headers(self.data_headers)
         self._monitor_execution(execution)
 

@@ -18,7 +18,67 @@ import logging
 logger = logging.getLogger("PYWPS")
 
 
-class DispelCustomWorkflow(Process, Monitor):
+class PyWPSMonitor(Monitor):
+    """
+    Implement the task monitoring class malleefowl.utils.Monitor for the PyWPS needs
+    """
+    def __init__(self, response):
+        synch = Manager()
+        self.full_log = synch.list()
+        self.exceptions_list = synch.list()
+        self.result_summary = synch.dict()
+        self.overall_progress = synch.dict()
+        self.overall_progress['progress'] = 0
+        self.response = response
+
+    def update_status(self, message, progress=None):
+        """
+        Implement malleefowl.utils.Monitor.update_status function. See Monitor.update_status for details
+        """
+        if not progress:
+            progress = self.overall_progress['progress']
+        else:
+            self.overall_progress['progress'] = progress
+
+        logger.debug('{progress:>4}%: {msg}'.format(progress=progress, msg=message))
+
+        log = '{timestamp}{progress:>4}%: {msg}'.format(
+            timestamp=datetime.now().strftime('%H:%M:%S'),
+            progress=progress,
+            msg=message)
+
+        self.response.update_status(message, progress)
+        self.full_log.append(log)
+
+    def raise_exception(self, exception):
+        """
+        Implement malleefowl.utils.Monitor.raise_exception function. See Monitor.raise_exception for details
+        """
+        self.exceptions_list.append(traceback.format_exc())
+
+    def save_task_result(self, task, result):
+        """
+        Implement malleefowl.utils.Monitor.save_task_result function. See Monitor.save_task_result for details
+        """
+        if task in self.result_summary:
+            task_result = self.result_summary[task]
+            task_result['processes'].append(result)
+            self.result_summary.update({task: task_result})
+        else:
+            result.update()
+            self.result_summary.update({task: dict(execution_order=len(self.result_summary) + 1,
+                                                   processes=[result, ])})
+
+    def format_summary(self):
+        """
+        Format the summary for a better looking
+        """
+        ordered_task = sorted(self.result_summary.items(), key=lambda x: x[1]['execution_order'])
+
+        return [{task[0]: sorted(task[1]['processes'], key=lambda x: x.get('data_id', 0))} for task in ordered_task]
+
+
+class DispelCustomWorkflow(Process):
     """
     Implement a PyWPS process for executing custom workflow
     """
@@ -63,11 +123,6 @@ class DispelCustomWorkflow(Process, Monitor):
             status_supported=True,
             store_supported=True,
         )
-        synch = Manager()
-        self.full_log = synch.list()
-        self.overall_progress = synch.dict()
-        self.exceptions_list = synch.list()
-        self.result_summary = synch.dict()
 
     def _handler(self, request, response):
         """
@@ -76,13 +131,9 @@ class DispelCustomWorkflow(Process, Monitor):
         :param response:
         :return:
         """
-        # Reset and preparation
-        del self.full_log[:]
-        del self.exceptions_list[:]
-        self.result_summary.clear()
-        self.overall_progress['progress'] = 0
-        self.response = response
-        self.update_status("starting workflow ...", 0)
+
+        monitor = PyWPSMonitor(response)
+        monitor.update_status("starting workflow ...", 0)
 
         # Load the workflow
         if 'workflow' in request.inputs:
@@ -91,10 +142,10 @@ class DispelCustomWorkflow(Process, Monitor):
             workflow = json.loads(request.inputs['workflow_string'][0].data)
 
         workflow_name = workflow.get('name', 'unknown')
-        self.update_status("workflow {0} prepared:".format(workflow_name), 0)
-        self.full_log.append(json.dumps(workflow,
-                                        indent=4,
-                                        separators=(',', ': ')))
+        monitor.update_status("workflow {0} prepared:".format(workflow_name), 0)
+        monitor.full_log.append(json.dumps(workflow,
+                                           indent=4,
+                                           separators=(',', ': ')))
 
         # Prepare headers
         headers = {}
@@ -105,34 +156,34 @@ class DispelCustomWorkflow(Process, Monitor):
 
         # Run the workflow
         try:
-            run(workflow, monitor=self, headers=headers)
-            self.update_status("workflow {0} done.".format(workflow_name), 100)
+            run(workflow, monitor=monitor, headers=headers)
+            monitor.update_status("workflow {0} done.".format(workflow_name), 100)
 
-            formatted_summary = self._format_summary()
-            self.full_log.append('Workflow result:')
-            self.full_log.append(json.dumps(formatted_summary,
-                                            indent=4,
-                                            separators=(',', ': '),
-                                            sort_keys=True))
+            formatted_summary = monitor.format_summary()
+            monitor.full_log.append('Workflow result:')
+            monitor.full_log.append(json.dumps(formatted_summary,
+                                               indent=4,
+                                               separators=(',', ': '),
+                                               sort_keys=True))
         except Exception as e:
             formatted_summary = None
-            self.raise_exception(e)
+            monitor.raise_exception(e)
 
         # Handle exceptions (if any)
-        if len(self.exceptions_list) > 0:
+        if len(monitor.exceptions_list) > 0:
             full_msg = ('\nCatch {nb_e} exception(s) while running the workflow:\n'
                         '{exceptions}\n\n'
                         'Execution log:\n{log}').format(
-                nb_e=len(self.exceptions_list),
-                exceptions='\n'.join(self.exceptions_list),
-                log='\n'.join(self.full_log))
+                nb_e=len(monitor.exceptions_list),
+                exceptions='\n'.join(monitor.exceptions_list),
+                log='\n'.join(monitor.full_log))
 
             # Augment the exception message by appending the full log but conserve the full exception stack
             raise WorkflowException(full_msg)
 
         # Send result
         with open('logfile.txt', 'w') as fp:
-            fp.write('\n'.join(self.full_log))
+            fp.write('\n'.join(monitor.full_log))
             response.outputs['logfile'].file = fp.name
 
         with open('output.json', 'w') as fp:
@@ -140,49 +191,3 @@ class DispelCustomWorkflow(Process, Monitor):
             response.outputs['output'].file = fp.name
 
         return response
-
-    def update_status(self, message, progress=None):
-        """
-        Implement malleefowl.utils.Monitor.update_status function. See Monitor.update_status for details
-        """
-        if not progress:
-            progress = self.overall_progress['progress']
-        else:
-            self.overall_progress['progress'] = progress
-
-        logger.debug('{progress:>4}%: {msg}'.format(progress=progress, msg=message))
-
-        log = '{timestamp}{progress:>4}%: {msg}'.format(
-            timestamp=datetime.now().strftime('%H:%M:%S'),
-            progress=progress,
-            msg=message)
-
-        self.response.update_status(message, progress)
-        self.full_log.append(log)
-
-    def raise_exception(self, exception):
-        """
-        Implement malleefowl.utils.Monitor.raise_exception function. See Monitor.raise_exception for details
-        """
-        self.exceptions_list.append(traceback.format_exc())
-
-    def save_task_result(self, task, result):
-        """
-        Implement malleefowl.utils.Monitor.save_task_result function. See Monitor.save_task_result for details
-        """
-        if task in self.result_summary:
-            task_result = self.result_summary[task]
-            task_result['processes'].append(result)
-            self.result_summary.update({task: task_result})
-        else:
-            result.update()
-            self.result_summary.update({task: dict(execution_order=len(self.result_summary) + 1,
-                                                   processes=[result, ])})
-
-    def _format_summary(self):
-        """
-        Format the summary for a better looking
-        """
-        ordered_task = sorted(self.result_summary.items(), key=lambda x: x[1]['execution_order'])
-
-        return [{task[0]: sorted(task[1]['processes'], key=lambda x: x.get('data_id', 0))} for task in ordered_task]
