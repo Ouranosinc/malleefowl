@@ -300,6 +300,7 @@ class GenericWPS(ProgressMonitorPE):
     def _jsonify_output(self, output):
         """
         Utility method to jsonify an output element.
+        :param output An owslib.wps.Output to jsonify
         """
         json_output = dict(identifier=output.identifier,
                            title=output.title,
@@ -352,6 +353,7 @@ class GenericWPS(ProgressMonitorPE):
             result = {}
             # NOTE: only set workflow output if specific output was needed
             for wps_output in self.outputs:
+                # Loop trough the process outputs of type owslib.wps.Output
                 for output in execution.processOutputs:
                     if wps_output[0] == output.identifier:
                         # outputs from execution structure do not always carry the dataType

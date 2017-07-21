@@ -1,5 +1,6 @@
 import sys
 import json
+import copy
 
 from pywps import ComplexOutput
 from pywps import LiteralInput, ComplexInput, BoundingBoxInput
@@ -31,14 +32,24 @@ class ReducePE(TaskPE):
         self._add_output(self.REDUCE_OUTPUT)
         self._add_linked_input(self.REDUCE_INPUT, reduce_input)
         self.output = auto_list(list(), default_val=None)
-        self.input_desc = None
+        # Store the upstream task output description
+        # (Will be used as required input if no downstream task are connected)
+        self.upstream_task_out_desc = None
+
+        # Store the downstream task input description
+        # (If available it will be used in priority as required input
+        #  so that the json array is filled with the good data type)
+        self.downstream_task_in_desc = None
 
     def get_input_desc(self, input_name):
         """
         Implement TaskPE fct. See TaskPE.get_input_desc for details.
         """
         if input_name == self.REDUCE_INPUT:
-            return self.input_desc
+            # If a downstream task is connected use directly that input as our. Else set our input desc based on what
+            # the upstream task is already sending.
+            return self._convert_in_desc(self.downstream_task_in_desc) if self.downstream_task_in_desc else \
+                   self._out_to_in_desc(self.upstream_task_out_desc)
         return None
 
     def get_output_desc(self, output_name):
@@ -52,29 +63,49 @@ class ReducePE(TaskPE):
                                         as_reference=False).describe_xml())
         return None
 
+    def try_connect(self, graph, linked_input, downstream_task, downstream_task_input):
+        """
+        Override TaskPE fct. See TaskPE.try_connect for details.
+        The ReducePE uses the downstream task input format to set it's own input format (so keep a ref)
+        """
+
+        # Set the supported output description which is the same as the downstream task supported input
+        if TaskPE.try_connect(self, graph, linked_input, downstream_task, downstream_task_input):
+            self.downstream_task_in_desc = downstream_task.get_input_desc(downstream_task_input)
+            return True
+        return False
+
     def connected_to(self, task_input, upstream_task, upstream_task_output):
         """
         Override TaskPE fct. See TaskPE.connected_to for details.
-        The ReducePE uses the upstream task output format to set it's own input format and it's set upon connection
+        The ReducePE could uses the upstream task output format to set it's own input format (so keep a ref)
         """
+        self.upstream_task_out_desc = upstream_task.get_output_desc(upstream_task_output)
 
-        # Set the supported input description which is the same as the upstream task supported output
-        up_task_out_desc = upstream_task.get_output_desc(upstream_task_output)
+    def _out_to_in_desc(self, out_desc):
         params = dict(identifier=self.REDUCE_INPUT,
                       title=self.REDUCE_INPUT,
                       min_occurs=1,
                       max_occurs=sys.maxint)
-        if up_task_out_desc.dataType == 'ComplexData':
-            params['supported_formats'] = [Format(mime_type=up_task_out_desc.defaultValue.mimeType,
-                                                  schema=up_task_out_desc.defaultValue.schema,
-                                                  encoding=up_task_out_desc.defaultValue.encoding)]
-            self.input_desc = Input(ComplexInput(**params).describe_xml())
-        elif up_task_out_desc.dataType == 'BoundingBoxData':
-            params['crss'] = up_task_out_desc.supportedValues
-            self.input_desc = Input(BoundingBoxInput(**params).describe_xml())
+        if out_desc.dataType == 'ComplexData':
+            params['supported_formats'] = [Format(mime_type=out_desc.defaultValue.mimeType,
+                                                  schema=out_desc.defaultValue.schema,
+                                                  encoding=out_desc.defaultValue.encoding)]
+            return Input(ComplexInput(**params).describe_xml())
+        elif out_desc.dataType == 'BoundingBoxData':
+            params['crss'] = out_desc.supportedValues
+            return Input(BoundingBoxInput(**params).describe_xml())
         else:
-            params['data_type'] = up_task_out_desc.dataType
-            self.input_desc = Input(LiteralInput(**params).describe_xml())
+            params['data_type'] = out_desc.dataType
+            return Input(LiteralInput(**params).describe_xml())
+
+    def _convert_in_desc(self, in_desc):
+        in_desc = copy.deepcopy(self.downstream_task_in_desc)
+        in_desc.identifier = self.REDUCE_INPUT
+        in_desc.title = self.REDUCE_INPUT
+        in_desc.minOccurs = 1
+        in_desc.maxOccurs = sys.maxint
+        return in_desc
 
     def _process(self, inputs):
         """
