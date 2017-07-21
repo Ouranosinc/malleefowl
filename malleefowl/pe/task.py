@@ -233,7 +233,7 @@ class TaskPE(GenericPE):
         """
         Send the given outputs to the downstream PE in the dispel4py graph and
         make sure to add the proper headers that must travel along the data
-        :param outputs: The outputs that will be send
+        :param outputs: The outputs that will be send ((string, owslib.wps.Output) tuple array)
         :param extra_headers: Additional headers to send with the data
         """
         if outputs:
@@ -249,10 +249,15 @@ class TaskPE(GenericPE):
 
             # Send all the outputs
             for key, value in outputs.items():
+                # Value is either a string or a owslib.wps.Output object
+                try:
+                    value_str = value.reference or str(value.data[0])
+                except (AttributeError, IndexError):
+                    value_str = value
                 self.monitor('{name} is sending value - [{headers}] {key}:{val}'.format(name=self.name,
                                                                                         headers=data_headers,
                                                                                         key=key,
-                                                                                        val=value))
+                                                                                        val=value_str))
                 self.write(key, DataWrapper(payload=value, headers=data_headers))
 
     def _read_inputs(self, inputs):
@@ -278,10 +283,15 @@ class TaskPE(GenericPE):
                 for value in self._adapt(input_value=inputs[key].payload,
                                          input_desc=self.get_input_desc(key),
                                          expecting_reference=linked_input_tasks[data_task].get('as_reference', False)):
+                    # Value is either a string or an object implementing the getXml method (as ComplexDataInput)
+                    try:
+                        value_str = value.getXml()
+                    except AttributeError:
+                        value_str = value
                     self.monitor('{name} is reading value - [{headers}] {key}:{val}'.format(name=self.name,
                                                                                             headers=inputs[key].headers,
                                                                                             key=key,
-                                                                                            val=value))
+                                                                                            val=value_str))
                     yield (key, value)
 
     @staticmethod
