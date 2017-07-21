@@ -6,6 +6,8 @@ from cStringIO import StringIO
 
 from owslib.wps import ComplexDataInput
 from owslib.wps import printInputOutput
+from owslib.wps import is_reference
+
 from dispel4py.core import GenericPE
 
 from malleefowl.utils import DataWrapper
@@ -313,15 +315,57 @@ class TaskPE(GenericPE):
         return Exception(msg)
 
     @staticmethod
-    def _read_reference(reference):
+    def _get_data(input_value):
+        """
+        Extract the data from the input value
+        """
+        # process output data are append into a list and
+        # WPS standard v1.0.0 specify that Output data field has zero or one value
+        if input_value.data:
+            return input_value.data[0]
+        else:
+            return None
+
+    @staticmethod
+    def _read_reference(input_value):
         """
         Read a WPS reference and return the content
         """
         try:
-            return urllib2.urlopen(reference).read()
+            return urllib2.urlopen(input_value.reference).read()
         except urllib2.URLError:
             # Don't raise exceptions coming from that.
             return None
+
+    def _get_json_multiple_inputs(self, input_value):
+        """
+        Since WPS standard does not allow to return multiple values for a single output,
+        a lot of process actually return a json array containing references to these outputs.
+        This function goal is to detect this particular format
+        :return: An array of references if the input_value is effectively a json containing that,
+                 None otherwise
+        """
+
+        # Check for the json datatype and mimetype
+        if input_value.dataType == 'ComplexData' and input_value.mimeType == 'application/json':
+
+            # If the json data is referenced read it's content
+            if input_value.reference:
+                json_data_str = self._read_reference(input_value)
+            # Else get the data directly
+            else:
+                json_data_str = self._get_data(input_value)
+
+            # Load the actual json dict
+            json_data = json.loads(json_data_str)
+
+            if isinstance(json_data, list):
+                for value in json_data:
+                    if not is_reference(value):
+                        return None
+                return json_data
+        return None
+
 
     def _adapt(self, input_value, input_desc, expecting_reference):
         """
@@ -344,59 +388,47 @@ class TaskPE(GenericPE):
                                   (ows.wps.ComplexDataInput or ows.wps.BoundingBoxDataInput)
         """
         expecting_complex = input_desc.dataType == 'ComplexData'
+        supported_mimetypes = [value.mimeType for value in input_desc.supportedValues] if expecting_complex else []
 
-        output_data = None
-        output_datatype = [input_value.dataType, ]
+        # Start by checking for json content if the task can handle more than one input and is not expecting a json
+        if input_desc.maxOccurs > 1 and 'application/json' not in supported_mimetypes:
+            json_data = self._get_json_multiple_inputs(input_value)
 
+            if json_data:
+                # Package the json content to the expected format...
+                self.monitor('{name} is loading reference(s) from json array{is_ref}'.format(
+                    name=self.name,
+                    is_ref=' reference' if input_value.reference else ''))
+                return [ComplexDataInput(href, mimeType=input_desc.supportedValues[0])
+                        if expecting_complex else href
+                        for href in json_data]
+
+        # Handle the input directly
+        input_datatype = [input_value.dataType, ]
         if input_value.reference:
             # If a reference is available and we expect a reference consider it as the data from this point
             if expecting_reference:
-                output_data = input_value.reference
+                self.monitor('{name} is using input reference as is'.format(name=self.name))
+                input_data = input_value.reference
 
                 # Append the string datatype since a reference can be considered as a string too
-                output_datatype.append('string')
+                input_datatype.append('string')
 
             # If we expect the data read the reference
             else:
-                output_data = self._read_reference(input_value.reference)
+                self.monitor('{name} is reading reference content'.format(name=self.name))
+                input_data = self._read_reference(input_value)
+        else:
+            # Else get the data directly
+            self.monitor('{name} is using input data directly'.format(name=self.name))
+            input_data = self._get_data(input_value)
 
-        # process output data are append into a list and
-        # WPS standard v1.0.0 specify that Output data field has zero or one value
-        elif input_value.data:
-            output_data = input_value.data[0]
-
-        # At this point raise an exception if we don't have data in wps_output.data
-        if not output_data:
-            raise TaskPE._get_exception(self.name, input_value, input_desc)
-
-        # Consider the validation completed if the dataType match for non-complex data or
-        # if the mimetype match for complex data
-        supported_mimetypes = [value.mimeType for value in input_desc.supportedValues] if expecting_complex else []
-        if input_desc.dataType in output_datatype and \
+        # Return the input data if we got one,
+        # the dataType match for non-complex data and the mimetype match for complex data
+        if input_data and \
+           input_desc.dataType in input_datatype and \
            (not expecting_complex or input_value.mimeType in supported_mimetypes):
-            return [output_data, ]
+            return [input_data, ]
 
-        # Remain cases are either datatypes or complex data mimetypes mismatching...
-
-        # Before raising an exception we will check for a specific case that we can handle:
-        # json array that could be fed into the downstream wps wanting an array of data.
-        # If this specific case is detected we will simply send the json content to the downstream wps without further
-        # validation since the json content type cannot be verified.
-        take_array = input_desc.maxOccurs > 1
-        if take_array and 'ComplexData' in output_datatype and input_value.mimeType == 'application/json':
-            # If the json data is referenced and hasn't already been read, read it now
-            if input_value.reference and expecting_reference:
-                output_data = self._read_reference(input_value.reference)
-
-            json_data = json.loads(output_data)
-            if isinstance(json_data, list):
-                array = []
-                for value in json_data:
-                    # Be a good guy and set the mimeType to something expected...
-                    array.append(
-                        ComplexDataInput(value,
-                                         mimeType=input_desc.supportedValues[0]) if expecting_complex else value)
-                return array
-
-        # Cannot do anything else
+        # Remain cases are either datatypes or complex data mimetypes mismatching... Cannot do anything else
         raise TaskPE._get_exception(self.name, input_value, input_desc)
