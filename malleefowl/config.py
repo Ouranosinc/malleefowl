@@ -10,11 +10,21 @@ def wps_url():
     return configuration.get_config_value("server", "url")
 
 
+def thredds_url():
+    return configuration.get_config_value("extra", "thredds_url")
+
+
 def cache_path():
     mypath = configuration.get_config_value("cache", "cache_path")
     if not os.path.isdir(mypath):
         mypath = tempfile.mkdtemp(prefix='cache')
     LOGGER.debug("using cache %s", mypath)
+    return mypath
+
+
+def persist_root():
+    mypath = configuration.get_config_value("extra", "persist_path")
+    LOGGER.debug("using persist path %s", mypath)
     return mypath
 
 
