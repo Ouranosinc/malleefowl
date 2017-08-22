@@ -14,6 +14,7 @@ def resolve(location, f, defaults=None):
 
     if defaults:
         facet_values = copy.deepcopy(defaults)
+        place_holders.extend(defaults.keys())
     else:
         facet_values = {}
 
