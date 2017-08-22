@@ -11,8 +11,6 @@ LOGGER = logging.getLogger("PYWPS")
 
 def resolve(location, f, defaults=None):
     place_holders = re.findall('\{(.*?)\}', location)
-    if not place_holders:
-        return location
 
     if defaults:
         facet_values = copy.deepcopy(defaults)
@@ -24,7 +22,11 @@ def resolve(location, f, defaults=None):
     except:
         return location.format(**facet_values)
 
-    if 'time' in nc.variables:
+    time_placeholders = ['initial_year', 'initial_month', 'initial_day',
+                         'final_year', 'final_month', 'final_day']
+    n = len(list(set(time_placeholders) - set(place_holders)))
+    # Only fetch time components if they are place_holders
+    if ('time' in nc.variables) and (n != len(time_placeholders)):
         nctime = nc.variables['time']
         if 'calendar' in nctime.ncattrs():
             calendar = nctime.getncattr('calendar')
@@ -39,13 +41,6 @@ def resolve(location, f, defaults=None):
         facet_values['final_month'] = str(datetime_f.month).zfill(2)
         facet_values['final_day'] = str(datetime_f.day).zfill(2)
         # Could also add support for hour, minute, second, etc.
-
-        if facet_values['initial_year'] == facet_values['final_year']:
-            facet_values['year'] = facet_values['initial_year']
-            if facet_values['initial_month'] == facet_values['final_month']:
-                facet_values['month'] = facet_values['initial_month']
-                if facet_values['initial_day'] == facet_values['final_day']:
-                    facet_values['day'] = facet_values['initial_day']
 
     for facet in place_holders:
         if facet in nc.ncattrs():
