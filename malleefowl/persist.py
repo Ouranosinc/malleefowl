@@ -6,14 +6,18 @@ from shutil import move
 from malleefowl import config
 
 import logging
+
 LOGGER = logging.getLogger("PYWPS")
 
 
 def resolve(location, f, defaults=None):
+    # Get all keys to replace in the location
     place_holders = re.findall('\{(.*?)\}', location)
 
     if defaults:
         facet_values = copy.deepcopy(defaults)
+
+        # Extend the keys with the default value dict (will be used to patch dataset metadata)
         place_holders.extend(defaults.keys())
     else:
         facet_values = {}
@@ -25,9 +29,8 @@ def resolve(location, f, defaults=None):
 
     time_placeholders = ['initial_year', 'initial_month', 'initial_day',
                          'final_year', 'final_month', 'final_day']
-    n = len(list(set(time_placeholders) - set(place_holders)))
     # Only fetch time components if they are place_holders
-    if ('time' in nc.variables) and (n != len(time_placeholders)):
+    if 'time' in nc.variables and len(set(time_placeholders).intersection(set(place_holders))):
         nctime = nc.variables['time']
         if 'calendar' in nctime.ncattrs():
             calendar = nctime.getncattr('calendar')
@@ -48,6 +51,7 @@ def resolve(location, f, defaults=None):
             facet_values[facet] = nc.getncattr(facet)
         elif "{0}_id".format(facet) in nc.ncattrs():
             facet_values[facet] = nc.getncattr("{0}_id".format(facet))
+        # Facets not found in dataset metadata are added here
         elif facet in defaults:
             nc.setncattr(facet, facet_values[facet])
         elif facet not in facet_values:
@@ -57,22 +61,36 @@ def resolve(location, f, defaults=None):
     return location.format(**facet_values)
 
 
-def persist_files(files, location, defaults=None):
-    persit_path = config.persist_root()
-    thredds_url = config.thredds_url()
-
+def persist_files(files, location, defaults, overwrite, headers):
+    persist_path = config.persist_path().rstrip('/')
+    thredds_url = config.thredds_url().strip('/')
+    known_extensions = config.persist_known_extensions().split(',')
     p_files = []
+
     for f in files:
         # Remove the file:// part if present
         f = f.split('file://')[-1]
-        expand_location = resolve(location, f, defaults)
-        dst = os.path.join(persit_path, expand_location, os.path.basename(f))
+
+        # Replace every place_holders by their values (the dataset is also updated with missing facets)
+        expand_location = resolve(location, f, defaults).strip('/')
+
+        # If a known extension is not included in the location, the original basename is used
+        file_parts = [expand_location]
+        if expand_location.split('.')[-1] not in known_extensions:
+            file_parts.append(os.path.basename(f))
+
+        dst = '/'.join([persist_path] + file_parts)
+
         try:
             os.makedirs(os.path.dirname(dst))
         except OSError:
             pass
+
+        if os.path.isfile(dst) and not overwrite:
+            raise IOError('File already exists')
+
         move(f, dst)
 
-        p_files.append('/'.join(s.strip('/') for s in [thredds_url, expand_location, os.path.basename(f)]))
+        p_files.append('/'.join([thredds_url] + file_parts))
 
     return p_files

@@ -22,10 +22,14 @@ def cache_path():
     return mypath
 
 
-def persist_root():
+def persist_path():
     mypath = configuration.get_config_value("extra", "persist_path")
     LOGGER.debug("using persist path %s", mypath)
     return mypath
+
+
+def persist_known_extensions():
+    return configuration.get_config_value("extra", "known_extensions")
 
 
 def archive_root():

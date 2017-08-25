@@ -29,6 +29,18 @@ class Persist(Process):
                          min_occurs=1,
                          max_occurs=1,
                          ),
+            LiteralInput('default_facets', 'Location',
+                         data_type='string',
+                         abstract="{key: value, key2: value2} json dictionary of facets",
+                         min_occurs=0,
+                         max_occurs=1,
+                         ),
+            LiteralInput('overwrite', 'Overwrite',
+                         data_type='boolean',
+                         abstract="Allow to overwrite existing resource. "
+                                  "Otherwise an exception is thrown for existing resources.",
+                         default=True,
+                         ),
         ]
         outputs = [
             ComplexOutput('output', 'Persisted files',
@@ -58,6 +70,11 @@ class Persist(Process):
 
         urls = [resource.data for resource in request.inputs['resource']]
         location = request.inputs['location'][0].data
+        try:
+            default = json.loads(request.inputs['default_facets'][0].data)
+        except (ValueError, KeyError):
+            default = None
+        overwrite = request.inputs['overwrite'][0].data
 
         LOGGER.debug("downloading urls: %s", len(urls))
 
@@ -78,7 +95,7 @@ class Persist(Process):
             credentials=credentials,
             monitor=monitor)
 
-        p_files = persist_files(files, location)
+        p_files = persist_files(files, location, default, overwrite, request.http_request.headers)
 
         with open('out.json', 'w') as fp:
             json.dump(obj=p_files, fp=fp, indent=4, sort_keys=True)
