@@ -14,6 +14,18 @@ def thredds_url():
     return configuration.get_config_value("extra", "thredds_url")
 
 
+def authz_url():
+    return configuration.get_config_value("extra", "authz_url")
+
+
+def authz_admin():
+    return configuration.get_config_value("extra", "authz_admin")
+
+
+def authz_pw():
+    return configuration.get_config_value("extra", "authz_pw")
+
+
 def cache_path():
     mypath = configuration.get_config_value("cache", "cache_path")
     if not os.path.isdir(mypath):

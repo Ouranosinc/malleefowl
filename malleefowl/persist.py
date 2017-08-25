@@ -2,8 +2,10 @@ import os
 import re
 import copy
 import netCDF4
+import requests
 from shutil import move
 from malleefowl import config
+from malleefowl.authz import AuthZ
 
 import logging
 
@@ -62,6 +64,7 @@ def resolve(location, f, defaults=None):
 
 
 def persist_files(files, location, defaults, overwrite, headers):
+    authz_srv = AuthZ()
     persist_path = config.persist_path().rstrip('/')
     thredds_url = config.thredds_url().strip('/')
     known_extensions = config.persist_known_extensions().split(',')
@@ -73,6 +76,10 @@ def persist_files(files, location, defaults, overwrite, headers):
 
         # Replace every place_holders by their values (the dataset is also updated with missing facets)
         expand_location = resolve(location, f, defaults).strip('/')
+
+        # Check permission to write to the final location
+        if not authz_srv.is_auth(expand_location, headers):
+            raise requests.HTTPError('403 Forbidden')
 
         # If a known extension is not included in the location, the original basename is used
         file_parts = [expand_location]
