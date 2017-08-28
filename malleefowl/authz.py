@@ -46,10 +46,7 @@ class AuthZ:
 
         response_data = json.loads(response.text)
 
-        # Waiting for API completion...
-        return True
-
-        service = response_data['resources'][self.thredds_svc]
+        service = response_data['service']
         if 'upload' in service['permission_names']:
             # The user has global upload permission to the service
             return True
@@ -67,6 +64,7 @@ class AuthZ:
             root = '/'.join([root, resources_tree['resource_name']])
         if 'upload' in resources_tree['permission_names']:
             yield root
+
         for r_id, resource in resources_tree['children'].items():
             for resource_path in self.tree_parser(resource, root, part_of_path=True):
                 yield resource_path
