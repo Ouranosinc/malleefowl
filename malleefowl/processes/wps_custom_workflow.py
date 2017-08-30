@@ -153,6 +153,8 @@ class DispelCustomWorkflow(Process):
             headers['X-X509-User-Proxy'] = request.http_request.headers['X-X509-User-Proxy']
         if 'Access-Token' in request.http_request.headers:
             headers['Access-Token'] = request.http_request.headers['Access-Token']
+        if 'Cookie' in request.http_request.headers:
+            headers['Cookie'] = request.http_request.headers['Cookie']
 
         # Run the workflow
         try:
