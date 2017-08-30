@@ -18,6 +18,10 @@ def authz_url():
     return configuration.get_config_value("extra", "authz_url")
 
 
+def authz_public():
+    return configuration.get_config_value("extra", "authz_public")
+
+
 def authz_admin():
     return configuration.get_config_value("extra", "authz_admin")
 

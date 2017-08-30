@@ -35,9 +35,14 @@ class AuthZ:
         if not self.thredds_svc:
             return False
 
-        cookie = Cookie.SimpleCookie()
-        cookie.load(str(headers['COOKIE']))
-        token = cookie['auth_tkt'].value
+        try:
+            cookie = Cookie.SimpleCookie()
+            cookie.load(str(headers['COOKIE']))
+            token = cookie['auth_tkt'].value
+        except KeyError:
+            # If the header does not contain a token use the public username
+            token = config.authz_public()
+
         response = self.session.get(self.url + '/users/{token}/services/{svc}/resources'.
                                     format(token=token,
                                            svc=self.thredds_svc))
