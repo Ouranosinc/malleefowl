@@ -12,6 +12,10 @@ import logging
 LOGGER = logging.getLogger("PYWPS")
 
 
+class FacetError(KeyError):
+    pass
+
+
 def resolve(location, f, defaults=None):
     # Get all keys to replace in the location
     place_holders = re.findall('\{(.*?)\}', location)
@@ -76,11 +80,16 @@ def persist_files(files, location, defaults, overwrite, headers):
         f = f.split('file://')[-1]
 
         # Replace every place_holders by their values (the dataset is also updated with missing facets)
-        expand_location = resolve(location, f, defaults).strip('/')
+        try:
+            expand_location = resolve(location, f, defaults).strip('/')
+        except KeyError as e:
+            raise FacetError('Unknown facet "{0}" in location input "{1}"'.format(e.message, location))
 
         # Check permission to write to the final location
-        if not authz_srv.is_auth(expand_location, headers):
-            raise requests.HTTPError('403 Forbidden')
+        permission = 'upload'
+        if not authz_srv.is_auth(expand_location, headers, permission):
+            raise requests.HTTPError("403 Forbidden : User hasn't not the required '{perm}' permission".format(
+                perm=permission))
 
         # If a known extension is not included in the location, the original basename is used
         file_parts = [expand_location]

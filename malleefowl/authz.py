@@ -31,7 +31,7 @@ class AuthZ:
         except:
             pass
 
-    def is_auth(self, location, headers):
+    def is_auth(self, location, headers, permission):
         if not self.thredds_svc:
             return False
 
@@ -52,24 +52,24 @@ class AuthZ:
         response_data = json.loads(response.text)
 
         service = response_data['service']
-        if 'upload' in service['permission_names']:
+        if permission in service['permission_names']:
             # The user has global upload permission to the service
             return True
 
         # Support only one catalog per thredds and suppose that the catalog content is located under persist_path
         # If more than one catalog is given the permission will be search for each of them with the same location
         for c_id, catalog in service['resources'].items():
-            for resource_path in self.tree_parser(catalog):
+            for resource_path in self.tree_parser(catalog, permission):
                 if location.startswith(resource_path.strip('/')):
                     return True
         return False
 
-    def tree_parser(self, resources_tree, root='', part_of_path=False):
+    def tree_parser(self, resources_tree, permission, root='', part_of_path=False):
         if part_of_path:
             root = '/'.join([root, resources_tree['resource_name']])
-        if 'upload' in resources_tree['permission_names']:
+        if permission in resources_tree['permission_names']:
             yield root
 
         for r_id, resource in resources_tree['children'].items():
-            for resource_path in self.tree_parser(resource, root, part_of_path=True):
+            for resource_path in self.tree_parser(resource, permission, root, part_of_path=True):
                 yield resource_path
