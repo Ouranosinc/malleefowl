@@ -23,6 +23,7 @@ def resolve(location, f, defaults=None):
         place_holders.extend(defaults.keys())
     else:
         facet_values = {}
+        defaults = {}
 
     try:
         nc = netCDF4.Dataset(f, 'a')
