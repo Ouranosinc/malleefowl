@@ -13,4 +13,8 @@ output-port = 8090
 #user = www-data
 #etc-user = root
 
-
+[pywps]
+extra-options =
+    archive_root=${settings:archive-root}
+    persist_path=${settings:persist-path}
+    thredds_url=http://${settings:hostname}:8093/thredds/fileServer/birdhouse/
