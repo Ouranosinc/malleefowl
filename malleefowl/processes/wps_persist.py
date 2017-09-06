@@ -29,7 +29,7 @@ class Persist(Process):
                          min_occurs=1,
                          max_occurs=1,
                          ),
-            LiteralInput('default_facets', 'Location',
+            LiteralInput('default_facets', 'Default Facets',
                          data_type='string',
                          abstract="{key: value, key2: value2} json dictionary of facets",
                          min_occurs=0,
