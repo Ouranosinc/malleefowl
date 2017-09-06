@@ -95,7 +95,7 @@ class Persist(Process):
             credentials=credentials,
             monitor=monitor)
 
-        p_files = persist_files(files, location, default, overwrite, request.http_request.headers)
+        p_files = persist_files(files, location, default, overwrite, request.http_request)
 
         with open('out.json', 'w') as fp:
             json.dump(obj=p_files, fp=fp, indent=4, sort_keys=True)

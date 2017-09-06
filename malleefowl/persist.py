@@ -68,7 +68,7 @@ def resolve(location, f, defaults=None):
     return location.format(**facet_values)
 
 
-def persist_files(files, location, defaults, overwrite, headers):
+def persist_files(files, location, defaults, overwrite, request):
     authz_srv = AuthZ()
     persist_path = config.persist_path().rstrip('/')
     thredds_url = config.thredds_url().strip('/')
@@ -87,7 +87,7 @@ def persist_files(files, location, defaults, overwrite, headers):
 
         # Check permission to write to the final location
         permission = 'upload'
-        if not authz_srv.is_auth(expand_location, headers, permission):
+        if not authz_srv.is_auth(expand_location, request, permission):
             raise requests.HTTPError("403 Forbidden : User hasn't not the required '{perm}' permission".format(
                 perm=permission))
 
