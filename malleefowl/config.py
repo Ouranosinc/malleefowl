@@ -58,11 +58,12 @@ def archive_root():
     return path_list
 
 
-def viz_mapping():
-    value = configuration.get_config_value("extra", "viz_mapping")
-    if value:
-        refs = value.split(',')
-        src_refs = refs[::2]
-        viz_refs = refs[1::2]
-        return zip(src_refs, viz_refs)
+def viz_mapping(protocol):
+    if protocol in ['wms', 'opendap']:
+        value = configuration.get_config_value("extra", '{0}_mapping'.format(protocol))
+        if value:
+            refs = value.split(',')
+            src_refs = refs[::2]
+            viz_refs = refs[1::2]
+            return zip(src_refs, viz_refs)
     return []
