@@ -29,7 +29,7 @@ class Persist(Process):
                          min_occurs=1,
                          max_occurs=1,
                          ),
-            LiteralInput('default_facets', 'Location',
+            LiteralInput('default_facets', 'Default Facets',
                          data_type='string',
                          abstract="{key: value, key2: value2} json dictionary of facets",
                          min_occurs=0,
@@ -95,7 +95,7 @@ class Persist(Process):
             credentials=credentials,
             monitor=monitor)
 
-        p_files = persist_files(files, location, default, overwrite, request.http_request.headers)
+        p_files = persist_files(files, location, default, overwrite, request.http_request)
 
         with open('out.json', 'w') as fp:
             json.dump(obj=p_files, fp=fp, indent=4, sort_keys=True)

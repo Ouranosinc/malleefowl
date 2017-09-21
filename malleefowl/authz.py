@@ -31,14 +31,12 @@ class AuthZ:
         except:
             pass
 
-    def is_auth(self, location, headers, permission):
+    def is_auth(self, location, request, permission):
         if not self.thredds_svc:
             return False
 
         try:
-            cookie = Cookie.SimpleCookie()
-            cookie.load(str(headers['COOKIE']))
-            token = cookie['auth_tkt'].value
+            token = request.cookies['auth_tkt']
         except KeyError:
             # If the header does not contain a token use the public username
             token = config.authz_public()

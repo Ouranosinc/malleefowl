@@ -47,3 +47,5 @@ dependencies:
 #  - eventlet==0.19.0
   - dispel4py==1.2.1
   - jsonschema
+  - future
+  - https://github.com/Ouranosinc/pyPavics/archive/master.zip
