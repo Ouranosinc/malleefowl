@@ -75,15 +75,17 @@ class Visualize(Process):
             wms_url = self.map_url(url, wms_mapping)
             opendap_url = self.map_url(url, opendap_mapping)
             if wms_url and opendap_url:
-                docs.append(dict(wms_url=wms_url,
-                                 opendap_url=opendap_url))
+                docs.append(dict(type='Aggregate',
+                                 wms_url=[wms_url,],
+                                 opendap_url=[opendap_url,]))
             else:
                 raise VisualizeError('Source host is unknown : {0}'.format(url))
 
         for url, doc in zip(urls, docs):
 
             try:
-                nc = netCDF4.Dataset(doc['opendap_url'], 'r')
+                opendap_url =  doc['opendap_url'][0]
+                nc = netCDF4.Dataset(opendap_url, 'r')
             except:
                 continue
 
@@ -93,15 +95,15 @@ class Visualize(Process):
                 # calendars. 2003-03-01 & 2003-02-29 (not a valid gregorian date)
                 # both return the same result...
                 # Not sure what happens to time zones here...
-                doc['datetime_min'] = calendar.timegm(datetime_min.timetuple())
+                doc['datetime_min'] = [calendar.timegm(datetime_min.timetuple()), ]
             if datetime_max:
-                doc['datetime_max'] = calendar.timegm(datetime_max.timetuple())
+                doc['datetime_max'] = [calendar.timegm(datetime_max.timetuple()), ]
             var_name = guess_main_variable(nc)
             min_max = variables_default_min_max.get(var_name, (0, 1, 'default'))
-            doc['variable'] = [var_name]
-            doc['variable_min'] = [min_max[0]]
-            doc['variable_max'] = [min_max[1]]
-            doc['variable_palette'] = [min_max[2]]
+            doc['variable'] = var_name
+            doc['variable_min'] = min_max[0]
+            doc['variable_max'] = min_max[1]
+            doc['variable_palette'] = min_max[2]
             nc.close()
 
         with open('out.json', 'w') as fp:
