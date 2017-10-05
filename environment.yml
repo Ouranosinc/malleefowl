@@ -15,7 +15,7 @@ dependencies:
 - mako
 # tests
 - pytest
-- flake8
+- flake8=3.3.0
 # ipython
 - ipython
 # docs
