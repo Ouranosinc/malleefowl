@@ -69,7 +69,7 @@ def resolve(location, f, defaults=None):
 
 
 def persist_files(files, location, defaults, overwrite, request):
-    authz_srv = AuthZ()
+    authz_srv = AuthZ(request)
     persist_path = config.persist_path().rstrip('/')
     thredds_url = config.thredds_url().strip('/')
     known_extensions = config.persist_known_extensions().split(',')
@@ -86,8 +86,8 @@ def persist_files(files, location, defaults, overwrite, request):
             raise FacetError('Unknown facet "{0}" in location input "{1}"'.format(e.message, location))
 
         # Check permission to write to the final location
-        permission = 'upload'
-        if not authz_srv.is_auth(expand_location, request, permission):
+        permission = 'write'
+        if not authz_srv.is_auth(expand_location, permission):
             raise requests.HTTPError("403 Forbidden : User hasn't not the required '{perm}' permission".format(
                 perm=permission))
 
