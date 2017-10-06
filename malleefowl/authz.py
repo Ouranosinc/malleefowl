@@ -5,16 +5,15 @@ from malleefowl import config
 
 
 class AuthZ:
-    def __init__(self):
+    def __init__(self, request):
+        self.thredds_svc = None
         self.url = config.authz_url().strip('/')
         self.session = requests.Session()
-        self.thredds_svc = None
-        credentials = dict(provider_name='ziggurat',
-                           user_name=config.authz_admin(),
-                           password=config.authz_pw())
-        response = self.session.post(self.url + '/signin', data=credentials)
-        if response.status_code != 200:
-            raise response.raise_for_status()
+        try:
+            self.session.cookies.set('auth_tkt', request.cookies['auth_tkt'])
+        except KeyError:
+            # No token... will be anonymous
+            pass
 
         response = self.session.get(self.url + '/services')
         if response.status_code != 200:
@@ -31,19 +30,12 @@ class AuthZ:
         except:
             pass
 
-    def is_auth(self, location, request, permission):
+    def is_auth(self, location, permission):
         if not self.thredds_svc:
             return False
 
-        try:
-            token = request.cookies['auth_tkt']
-        except KeyError:
-            # If the header does not contain a token use the public username
-            token = config.authz_public()
-
-        response = self.session.get(self.url + '/users/{token}/services/{svc}/resources'.
-                                    format(token=token,
-                                           svc=self.thredds_svc))
+        response = self.session.get(self.url + '/users/current/services/{svc}/resources'.
+                                    format(svc=self.thredds_svc))
         if response.status_code != 200:
             raise response.raise_for_status()
 

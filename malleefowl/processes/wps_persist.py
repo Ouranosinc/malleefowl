@@ -45,7 +45,7 @@ class Persist(Process):
         outputs = [
             ComplexOutput('output', 'Persisted files',
                           abstract="Json document with list of persisted files with file url.",
-                          as_reference=True,
+                          as_reference=False,
                           supported_formats=[Format('application/json')]),
         ]
 
