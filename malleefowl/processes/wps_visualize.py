@@ -36,7 +36,7 @@ class Visualize(Process):
             ComplexOutput('output', 'WMS Url corresponding to the given resources',
                           abstract="Json document with all metadata required for visualization "
                                    "about the given resources.",
-                          as_reference=True,
+                          as_reference=False,
                           supported_formats=[Format('application/json')]),
         ]
 
