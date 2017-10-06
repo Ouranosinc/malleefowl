@@ -28,7 +28,7 @@ class Download(Process):
         outputs = [
             ComplexOutput('output', 'Downloaded files',
                           abstract="Json document with list of downloaded files with file url.",
-                          as_reference=False,
+                          as_reference=True,
                           supported_formats=[Format('application/json')]),
         ]
 

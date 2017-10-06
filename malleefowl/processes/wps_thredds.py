@@ -23,7 +23,7 @@ class ThreddsDownload(Process):
         outputs = [
             ComplexOutput('output', 'Downloaded files',
                           abstract="JSON document with list of downloaded files with file url.",
-                          as_reference=False,
+                          as_reference=True,
                           supported_formats=[Format('application/json')]),
         ]
 
@@ -69,7 +69,7 @@ class ThreddsUrls(Process):
         outputs = [
             ComplexOutput('output', 'Catalog file urls',
                           abstract="JSON document with list of catalog file url.",
-                          as_reference=False,
+                          as_reference=True,
                           supported_formats=[Format('application/json')]),
         ]
 
