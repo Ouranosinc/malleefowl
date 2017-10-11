@@ -7,6 +7,7 @@ from owslib.wps import WebProcessingService
 from owslib.wps import WPSExecuteReader
 from owslib.etree import etree
 
+from malleefowl.pe.task import TaskPE
 from malleefowl.pe.progress_monitor import ProgressMonitorPE, RangeProgress, RangeGroupProgress
 from malleefowl.utils import DataWrapper
 from malleefowl.exceptions import WorkflowException
@@ -304,11 +305,18 @@ class GenericWPS(ProgressMonitorPE):
         """
         json_output = dict(identifier=output.identifier,
                            title=output.title,
-                           dataType=self.get_output_datatype(output))
+                           dataType=output.dataType)
 
         # WPS standard v1.0.0 specify that either a reference or a data field has to be provided
         if output.reference:
             json_output['reference'] = output.reference
+
+            # Handle special case where we have a reference to a json array containing dataset reference
+            # Avoid reference to reference by fetching directly the dataset references
+
+            json_array = self._get_json_multiple_inputs(output)
+            if json_array and all(str(ref).startswith('http') for ref in json_array):
+                json_output['data'] = json_array
         else:
             # WPS standard v1.0.0 specify that Output data field has Zero or one value
             json_output['data'] = output.data[0] if output.data else None
@@ -345,6 +353,10 @@ class GenericWPS(ProgressMonitorPE):
                             self.STATUS_LOCATION_NAME: execution.statusLocation}
 
         if execution.isSucceded():
+            # Fix the output datatype because outputs from execution structure do not always it and we need it
+            for output in execution.processOutputs:
+                output.dataType = self.get_output_datatype(output)
+
             execution_result[self.OUTPUT_NAME] = \
                 [self._jsonify_output(output) for output in execution.processOutputs]
 
@@ -356,16 +368,6 @@ class GenericWPS(ProgressMonitorPE):
                 # Loop trough the process outputs of type owslib.wps.Output
                 for output in execution.processOutputs:
                     if wps_output[0] == output.identifier:
-                        # outputs from execution structure do not always carry the dataType
-                        # so find it from the process description because the _adapt fct needs it
-                        if not output.dataType:
-                            for desc_wps_output in self.proc_desc.processOutputs:
-                                if desc_wps_output.identifier == output.identifier:
-                                    output.dataType = desc_wps_output.dataType
-                        # Also the datatype is not always stripped correctly so do the job here
-                        else:
-                            output.dataType = output.dataType.split(':')[-1]
-
                         # Send directly the wps output object to the downstream PE
                         # Note: output.data is always an array since a wps output is appended to processOutputs[x].data
                         result[wps_output[0]] = output
