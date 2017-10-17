@@ -117,7 +117,8 @@ class Visualize(Process):
             url_trailing_part = doc['opendap_url'][0][len(opendap_host_url) + 1:]
             # Remove file part before joining directory by a dot
             doc['dataset_id'] = '.'.join(url_trailing_part.split('/')[:-1])
-            doc['aggregate_title'] = doc['dataset_id']
+            # Aggregate title use the file name until they are merged, at which point it use the dataset_id
+            doc['aggregate_title'] = url_trailing_part.split('/')[-1]
             nc.close()
 
         if request.inputs['aggregate'][0].data:
@@ -160,6 +161,7 @@ class Visualize(Process):
                         ref_doc['opendap_url'].append(doc['opendap_url'][0])
                         ref_doc['wms_url'].append(doc['wms_url'][0])
                     ref_doc['type'] = 'Aggregate'
+                    ref_doc['aggregate_title'] = ref_doc['dataset_id']
                 else:
                     docs.append(doc)
             response_data['response']['numFound'] = len(docs)
