@@ -17,6 +17,8 @@ def thredds_url():
 def authz_url():
     return configuration.get_config_value("extra", "authz_url")
 
+def thredds_service_name():
+    return configuration.get_config_value("extra", "authz_thredds_service_name")
 
 def cache_path():
     mypath = configuration.get_config_value("cache", "cache_path")
