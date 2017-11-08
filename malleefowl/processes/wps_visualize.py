@@ -1,7 +1,9 @@
+import os
 import re
 import json
 import netCDF4
 import dateutil
+from urlparse import urlparse
 
 from pywps import Process
 from pywps import LiteralInput
@@ -12,6 +14,7 @@ from pavics import nctime
 from pavics.netcdf import guess_main_variable
 from pavics.catalog import variables_default_min_max
 from malleefowl import config
+from malleefowl.utils import get_auth_cookie
 
 import logging
 LOGGER = logging.getLogger("PYWPS")
@@ -91,13 +94,32 @@ class Visualize(Process):
             else:
                 raise VisualizeError('Source host is unknown : {0}'.format(url))
 
+        cookie = get_auth_cookie(request)
+        daprc_fn = '.daprc'
+        auth_cookie_fn = 'auth_cookie'
+        if cookie:
+            with open(daprc_fn, 'w') as f:
+                f.write('HTTP.COOKIEJAR = auth_cookie')
+
         for url, doc in zip(urls, temp_docs):
+            opendap_url = doc['opendap_url'][0]
+
+            if cookie:
+                with open(auth_cookie_fn, 'w') as f:
+                    for key, value in cookie.items():
+                        f.write('{domain}\t{access_flag}\t{path}\t{secure}\t{expiration}\t{name}\t{value}\n'.format(
+                            domain=urlparse(opendap_url).hostname,
+                            access_flag='FALSE',
+                            path='/',
+                            secure='FALSE',
+                            expiration=0,
+                            name=key,
+                            value=value))
 
             try:
-                opendap_url =  doc['opendap_url'][0]
                 nc = netCDF4.Dataset(opendap_url, 'r')
             except:
-                continue
+                raise VisualizeError('Cannot access source dataset : {0}'.format(opendap_url))
 
             (datetime_min, datetime_max) = nctime.time_start_end(nc)
             if datetime_min:
@@ -120,6 +142,10 @@ class Visualize(Process):
             # Aggregate title use the file name until they are merged, at which point it use the dataset_id
             doc['aggregate_title'] = url_trailing_part.split('/')[-1]
             nc.close()
+
+        if cookie:
+            os.remove(daprc_fn)
+            os.remove(auth_cookie_fn)
 
         if request.inputs['aggregate'][0].data:
             def overlap(min1, max1, min2, max2):

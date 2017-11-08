@@ -218,6 +218,17 @@ def nc_copy(source, target, overwrite=True, time_dimname='time', nchunk=10, ista
     nc_in.close()
 
 
+def get_auth_cookie(pywps_request):
+    try:
+        return dict(auth_tkt=pywps_request.http_request.cookies['auth_tkt'])
+    except KeyError:
+        # No token... will be anonymous
+        return None
+
+
+def flatten_auth_cookie(cookie):
+    return '; '.join(['{0}={1}'.format(key, value) for key, value in cookie.items()])
+
 class auto_list:
     """
     Implement a list that auto expand when the index exceed the current size of the list
