@@ -68,8 +68,8 @@ def resolve(location, f, defaults=None):
     return location.format(**facet_values)
 
 
-def persist_files(files, location, defaults, overwrite, request):
-    authz_srv = AuthZ(request)
+def persist_files(files, location, defaults, overwrite, auth_cookie):
+    authz_srv = AuthZ(auth_cookie)
     persist_path = config.persist_path().rstrip('/')
     thredds_url = config.thredds_url().strip('/')
     known_extensions = config.persist_known_extensions().split(',')

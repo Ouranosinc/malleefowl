@@ -8,6 +8,7 @@ from pywps.app.Common import Metadata
 
 from malleefowl.download import download_files
 from malleefowl.persist import persist_files
+from malleefowl.utils import get_auth_cookie
 
 import logging
 LOGGER = logging.getLogger("PYWPS")
@@ -85,6 +86,8 @@ class Persist(Process):
             credentials = None
             LOGGER.debug('Using no credentials')
 
+        auth_cookie = get_auth_cookie(request)
+
         def monitor(msg, progress):
             LOGGER.info("%s - (%d/100)", msg, progress)
             # Download progress will range between 0 and 90 (Last 10 percent being the final move part)
@@ -93,9 +96,10 @@ class Persist(Process):
         files = download_files(
             urls=urls,
             credentials=credentials,
+            cookie=auth_cookie,
             monitor=monitor)
 
-        p_files = persist_files(files, location, default, overwrite, request.http_request)
+        p_files = persist_files(files, location, default, overwrite, auth_cookie)
 
         with open('out.json', 'w') as fp:
             json.dump(obj=p_files, fp=fp, indent=4, sort_keys=True)

@@ -5,13 +5,14 @@ from malleefowl import config
 
 
 class AuthZ:
-    def __init__(self, request):
+    def __init__(self, auth_cookie):
         # Get the thredds service name used in authz service
         self.thredds_svc = config.thredds_service_name()
         self.url = config.authz_url().strip('/')
         self.session = requests.Session()
         try:
-            self.session.cookies.set('auth_tkt', request.cookies['auth_tkt'])
+            for key, value in auth_cookie.items():
+                self.session.cookies.set(key, value)
         except KeyError:
             # No token... will be anonymous
             pass

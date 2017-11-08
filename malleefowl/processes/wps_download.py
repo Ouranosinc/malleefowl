@@ -9,6 +9,7 @@ from pywps import Format, FORMATS
 from pywps.app.Common import Metadata
 
 from malleefowl.download import download_files
+from malleefowl.utils import get_auth_cookie
 
 import logging
 LOGGER = logging.getLogger("PYWPS")
@@ -68,6 +69,7 @@ class Download(Process):
         files = download_files(
             urls=urls,
             credentials=credentials,
+            cookie=get_auth_cookie(request),
             monitor=monitor)
 
         with open('out.json', 'w') as fp:
