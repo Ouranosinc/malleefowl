@@ -1,5 +1,5 @@
 """
-TODO: handle parallel download process
+TODO: handle parallel downloads
 """
 
 import os
@@ -60,7 +60,7 @@ def wget(url, use_file_url=False, credentials=None, cookie=None):
     :param cookie: key,value dict if security by cookie is needed to download file
     :returns: downloaded file with either file:// or system path
     """
-    LOGGER.debug('downloading %s', url)
+    LOGGER.info('downloading %s', url)
 
     parsed_url = urlparse.urlparse(url)
     filename = os.path.join(
@@ -87,8 +87,8 @@ def wget(url, use_file_url=False, credentials=None, cookie=None):
             LOGGER.debug('using cookie')
             cmd.extend(["--header", "Cookie: {0}".format(flatten_auth_cookie(cookie))])
         cmd.append("--no-check-certificate")
-        if not LOGGER.isEnabledFor(logging.DEBUG):
-            cmd.append("--quiet")
+        # if not LOGGER.isEnabledFor(logging.DEBUG):
+        #    cmd.append("--quiet")
         cmd.append("--tries=3")                  # max 2 retries
         cmd.append("-N")                         # turn on timestamping
         cmd.append("--continue")                 # continue partial downloads
@@ -100,9 +100,9 @@ def wget(url, use_file_url=False, credentials=None, cookie=None):
         LOGGER.debug("output: %s", output)
     except subprocess.CalledProcessError as e:
         msg = "wget failed on {0}: {1.output}".format(url, e)
-        LOGGER.error(msg)
+        LOGGER.exception(msg)
         raise ProcessFailed(msg)
-    except:
+    except Exception:
         msg = "wget failed on {0}.".format(url)
         LOGGER.exception(msg)
         raise ProcessFailed(msg)
@@ -116,7 +116,12 @@ def wget(url, use_file_url=False, credentials=None, cookie=None):
         if not os.path.isdir(os.path.dirname(filename)):
             LOGGER.debug("Creating cache directories.")
             os.makedirs(os.path.dirname(filename), 0700)
-        os.link(dn_filename, filename)
+        try:
+            os.link(dn_filename, filename)
+        except Exception:
+            LOGGER.warn('Could not link file, try to copy it ...')
+            from shutil import copy2
+            copy2(dn_filename, filename)
     if use_file_url:
         filename = "file://" + filename
     return filename
