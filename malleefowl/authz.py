@@ -5,29 +5,16 @@ from malleefowl import config
 
 
 class AuthZ:
-    def __init__(self, request):
-        self.thredds_svc = None
+    def __init__(self, auth_cookie):
+        # Get the thredds service name used in authz service
+        self.thredds_svc = config.thredds_service_name()
         self.url = config.authz_url().strip('/')
         self.session = requests.Session()
         try:
-            self.session.cookies.set('auth_tkt', request.cookies['auth_tkt'])
+            for key, value in auth_cookie.items():
+                self.session.cookies.set(key, value)
         except KeyError:
             # No token... will be anonymous
-            pass
-
-        response = self.session.get(self.url + '/services')
-        if response.status_code != 200:
-            raise response.raise_for_status()
-
-        # Looking for the proper thredds service name base on our configured thredds server
-        thredds_url = config.thredds_url().strip('/')
-        try:
-            services = json.loads(response.text)
-            for key, service in services['services']['thredds'].items():
-                if service['service_url'] in thredds_url:
-                    self.thredds_svc = service['service_name']
-                    break
-        except:
             pass
 
     def is_auth(self, location, permission):

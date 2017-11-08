@@ -8,7 +8,7 @@ from pywps import Format, FORMATS
 from pywps.app.Common import Metadata
 
 from malleefowl import download
-
+from malleefowl.utils import get_auth_cookie
 
 class ThreddsDownload(Process):
     def __init__(self):
@@ -48,6 +48,7 @@ class ThreddsDownload(Process):
             response.update_status(message, progress)
         files = download.download_files_from_thredds(
             url=request.inputs['url'][0].data,
+            cookie=get_auth_cookie(request),
             monitor=monitor)
 
         with open('out.json', 'w') as fp:
@@ -93,8 +94,9 @@ class ThreddsUrls(Process):
         def monitor(message, progress):
             response.update_status(message, progress)
 
-        import threddsclient
-        urls = threddsclient.download_urls(request.inputs['url'][0].data)
+        cookie = get_auth_cookie(request)
+        catalog_url = request.inputs['url'][0].data
+        urls = download.get_thredds_download_urls(catalog_url, cookie)
 
         with open('out.json', 'w') as fp:
             json.dump(obj=urls, fp=fp, indent=4, sort_keys=True)

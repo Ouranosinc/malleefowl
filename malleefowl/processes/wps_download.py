@@ -9,18 +9,30 @@ from pywps import Format, FORMATS
 from pywps.app.Common import Metadata
 
 from malleefowl.download import download_files
+from malleefowl.utils import get_auth_cookie
 
 import logging
 LOGGER = logging.getLogger("PYWPS")
 
 
 class Download(Process):
+    """
+    The download process gets as input a list of URLs pointing to NetCDF files
+    which should be downloaded.
+
+    The downloader first checks if the file is available in the local ESGF archive or cache.
+    If not then the file will be downloaded and stored in a local cache.
+    As a result it provides a list of local ``file://`` paths to the requested files.
+
+    The downloader does not download files if they are already in the
+    ESGF archive or in the local cache.
+    """
 
     def __init__(self):
         inputs = [
             LiteralInput('resource', 'Resource',
                          data_type='string',
-                         abstract="URL of your resource.",
+                         abstract="URL pointing to your resource which should be downloaded.",
                          min_occurs=1,
                          max_occurs=1024,
                          ),
@@ -36,7 +48,7 @@ class Download(Process):
             self._handler,
             identifier="download",
             title="Download files",
-            version="0.8",
+            version="0.9",
             abstract="Downloads files and provides file list as json document.",
             metadata=[
                 Metadata('Birdhouse', 'http://bird-house.github.io/'),
@@ -68,6 +80,7 @@ class Download(Process):
         files = download_files(
             urls=urls,
             credentials=credentials,
+            cookie=get_auth_cookie(request),
             monitor=monitor)
 
         with open('out.json', 'w') as fp:
