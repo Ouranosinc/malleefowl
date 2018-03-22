@@ -3,7 +3,11 @@ import tempfile
 from pywps import configuration
 
 import logging
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger("PYWPS")
+
+DEFAULT_NODE = 'default'
+DKRZ_NODE = 'dkrz'
+IPSL_NODE = 'ipsl'
 
 
 def wps_url():
@@ -11,11 +15,11 @@ def wps_url():
 
 
 def cache_path():
-    mypath = configuration.get_config_value("cache", "cache_path")
-    if not os.path.isdir(mypath):
-        mypath = tempfile.mkdtemp(prefix='cache')
-    LOGGER.debug("using cache %s", mypath)
-    return mypath
+    cache_path = configuration.get_config_value("cache", "cache_path")
+    if not cache_path:
+        LOGGER.warn("No cache path configured. Using default value.")
+        cache_path = os.path.join(configuration.get_config_value("server", "outputpath"), "cache")
+    return cache_path
 
 
 def archive_root():
@@ -26,3 +30,10 @@ def archive_root():
     else:
         path_list = []
     return path_list
+
+
+def archive_node():
+    node = configuration.get_config_value("extra", "archive_node")
+    node = node or 'default'
+    node = node.lower()
+    return node
