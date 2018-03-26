@@ -75,7 +75,13 @@ def wget(url, use_file_url=False, credentials=None, cookie=None):
         return filename
 
     local_cache_path = os.path.abspath(os.curdir)
-
+    dn_filename = os.path.join(
+        local_cache_path,
+        parsed_url.netloc,
+        parsed_url.path.strip('/'))
+    if not os.path.isdir(os.path.dirname(dn_filename)):
+        LOGGER.debug("Creating download directories.")
+        os.makedirs(os.path.dirname(dn_filename), 0700)
     try:
         cmd = ["wget"]
         if credentials is not None:
@@ -92,7 +98,8 @@ def wget(url, use_file_url=False, credentials=None, cookie=None):
         cmd.append("--tries=3")                  # max 2 retries
         cmd.append("-N")                         # turn on timestamping
         cmd.append("--continue")                 # continue partial downloads
-        cmd.append("-x")                         # force creation of directories
+        #cmd.append("-x")                         # force creation of directories
+        cmd.extend(["-O", dn_filename])
         cmd.extend(["-P", local_cache_path])  # directory prefix
         cmd.append(url)                          # download url
         LOGGER.debug("cmd: %s", ' '.join(cmd))
@@ -107,10 +114,7 @@ def wget(url, use_file_url=False, credentials=None, cookie=None):
         LOGGER.exception(msg)
         raise ProcessFailed(msg)
 
-    dn_filename = os.path.join(
-        local_cache_path,
-        parsed_url.netloc,
-        parsed_url.path.strip('/'))
+
     if not os.path.exists(filename):
         LOGGER.debug("linking downloaded file to cache.")
         if not os.path.isdir(os.path.dirname(filename)):
