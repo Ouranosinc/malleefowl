@@ -8,6 +8,8 @@ import urlparse
 import threading
 from Queue import Queue, Empty
 import subprocess
+from threddsclient import download_urls
+from threddsclient import opendap_urls
 
 from malleefowl import config
 from malleefowl.utils import esgf_archive_path
@@ -142,13 +144,11 @@ def download_files_from_thredds(url, recursive=False, cookie=None, monitor=None)
 
 
 def get_thredds_download_urls(url, cookie=None):
-    import threddsclient
-    return get_thredds_urls(threddsclient.download_urls, url, cookie)
+    return get_thredds_urls(download_urls, url, cookie)
 
 
 def get_thredds_opendap_urls(url, cookie=None):
-    import threddsclient
-    return get_thredds_urls(threddsclient.opendap_urls, url, cookie)
+    return get_thredds_urls(opendap_urls, url, cookie)
 
 
 def get_thredds_urls(thredds_fct, url, cookie=None):
