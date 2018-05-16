@@ -8,6 +8,8 @@ import urlparse
 import threading
 from Queue import Queue, Empty
 import subprocess
+from threddsclient import download_urls
+from threddsclient import opendap_urls
 
 from malleefowl import config
 from malleefowl.utils import esgf_archive_path
@@ -142,11 +144,18 @@ def download_files_from_thredds(url, recursive=False, cookie=None, monitor=None)
 
 
 def get_thredds_download_urls(url, cookie=None):
+    return get_thredds_urls(download_urls, url, cookie)
+
+
+def get_thredds_opendap_urls(url, cookie=None):
+    return get_thredds_urls(opendap_urls, url, cookie)
+
+
+def get_thredds_urls(thredds_fct, url, cookie=None):
     headers = dict(Cookie=flatten_auth_cookie(cookie)) if cookie else None
 
     try:
-        import threddsclient
-        urls = threddsclient.download_urls(url, headers=headers)
+        urls = thredds_fct(url, headers=headers)
     except ValueError:
         # threddsclient don't check ret code before parsing the response and thus the real error message could be lost
         # Here we try a second time to check the return code and possibly get a better error message
